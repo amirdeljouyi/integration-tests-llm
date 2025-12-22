@@ -1,0 +1,3 @@
+project,class,src,llm_directory
+quarks,io.quarkus.qute.deployment.QuteProcessor,extensions/qute/deployment/src/main/java/io/quarkus/qute/deployment/QuteProcessor.java,
+
