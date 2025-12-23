@@ -132,4 +132,42 @@ public final class ForkedJacocoRunner {
         for (File f : jars) paths.add(f.getPath());
         return paths;
     }
+
+    public List<String> runAndCaptureLines(String mainClass, List<String> args) throws Exception {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("java");
+
+        cmd.add("--add-opens"); cmd.add("java.base/java.lang=ALL-UNNAMED");
+        cmd.add("--add-opens"); cmd.add("java.base/java.lang.reflect=ALL-UNNAMED");
+        cmd.add("--add-opens"); cmd.add("java.base/java.util=ALL-UNNAMED");
+        cmd.add("--add-opens"); cmd.add("java.base/java.net=ALL-UNNAMED");
+        cmd.add("--add-opens"); cmd.add("java.desktop/java.awt=ALL-UNNAMED");
+
+        cmd.add("-Djava.util.logging.manager=org.jboss.logmanager.LogManager");
+
+        cmd.add("-cp");
+        cmd.add(buildClasspath());
+
+        cmd.add(mainClass);
+        cmd.addAll(args);
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+
+        List<String> lines = new ArrayList<>();
+        try (java.io.BufferedReader br = new java.io.BufferedReader(
+                new java.io.InputStreamReader(p.getInputStream()))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                lines.add(line);
+            }
+        }
+
+        int exit = p.waitFor();
+        if (exit != 0) {
+            throw new RuntimeException("Fork failed (exit=" + exit + ") main=" + mainClass);
+        }
+        return lines;
+    }
 }
