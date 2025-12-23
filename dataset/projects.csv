@@ -1,0 +1,2 @@
+project,class,manual_test,agt_test
+quarks,io.quarkus.qute.deployment.QuteProcessor,QuteProcessorTest,QuteProcessor_1_ESTest
