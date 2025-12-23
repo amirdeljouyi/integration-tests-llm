@@ -1,6 +1,6 @@
 SUT_JAR="tmp/quarkus_classes"
-TEST_SRC_DIR="result/generated-tests/"
-TEST_CLASSES_DIR="build/test-classes"
+TEST_SRC_DIR="$1"
+TEST_CLASSES_DIR="$2"
 LIBS_DIR="libs/*"
 
 javac \
