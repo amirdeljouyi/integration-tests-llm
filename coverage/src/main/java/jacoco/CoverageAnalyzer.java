@@ -21,6 +21,93 @@ public final class CoverageAnalyzer {
         this.classesDir = Objects.requireNonNull(classesDir, "classesDir");
     }
 
+    public static final class LineDelta {
+        public final List<Integer> newlyCovered = new ArrayList<>();
+        public final List<Integer> upgradedToFull = new ArrayList<>();
+
+        public boolean isEmpty() {
+            return newlyCovered.isEmpty() && upgradedToFull.isEmpty();
+        }
+    }
+
+    /**
+     * Computes line-level coverage added by candidateExec compared to baselineExec.
+     *
+     * Key:
+     *  - newlyCovered: NOT_COVERED -> PARTLY/FULLY
+     *  - upgradedToFull: PARTLY -> FULLY
+     */
+    public Map<String, LineDelta> newlyCoveredLines(
+            File baselineExec,
+            File candidateExec) throws IOException {
+
+        Map<String, IClassCoverage> base = analyzePerClass(baselineExec);
+        Map<String, IClassCoverage> cand = analyzePerClass(candidateExec);
+
+        Map<String, LineDelta> result = new LinkedHashMap<>();
+
+        for (Map.Entry<String, IClassCoverage> e : cand.entrySet()) {
+            String fqcn = e.getKey();
+            IClassCoverage c = e.getValue();
+            IClassCoverage b = base.get(fqcn);
+
+            int first = c.getFirstLine();
+            int last  = c.getLastLine();
+            if (first == -1 || last == -1) continue;
+
+            LineDelta delta = new LineDelta();
+
+            for (int line = first; line <= last; line++) {
+                int candStatus = c.getLine(line).getStatus();
+                int baseStatus = (b == null)
+                        ? ICounter.NOT_COVERED
+                        : b.getLine(line).getStatus();
+
+                boolean candCovered = isCovered(candStatus);
+                boolean baseCovered = isCovered(baseStatus);
+
+                // NOT_COVERED -> PARTLY/FULLY
+                if (candCovered && !baseCovered) {
+                    delta.newlyCovered.add(line);
+                }
+
+                // PARTLY -> FULLY
+                if (baseStatus == ICounter.PARTLY_COVERED
+                        && candStatus == ICounter.FULLY_COVERED) {
+                    delta.upgradedToFull.add(line);
+                }
+            }
+
+            if (!delta.isEmpty()) {
+                result.put(fqcn, delta);
+            }
+        }
+
+        return result;
+    }
+
+    private boolean isCovered(int status) {
+        return status == ICounter.PARTLY_COVERED
+                || status == ICounter.FULLY_COVERED;
+    }
+
+    private boolean isFullyCovered(int status) {
+        return status == ICounter.FULLY_COVERED;
+    }
+
+    public jacoco.TestDelta testDeltaTotals(File baselineExec, File candidateExec, String testSelector) throws IOException {
+        java.util.List<jacoco.ClassDelta> perClass = perClassDelta(baselineExec, candidateExec);
+
+        int lines = 0, methods = 0, branches = 0, instr = 0;
+        for (jacoco.ClassDelta d : perClass) {
+            lines += d.getAddedLines();
+            methods += d.getAddedMethods();
+            branches += d.getAddedBranches();
+            instr += d.getAddedInstructions();
+        }
+        return new jacoco.TestDelta(testSelector, lines, methods, branches, instr);
+    }
+
     public List<ClassDelta> perClassDelta(File baselineExec, File candidateExec) throws IOException {
         Map<String, IClassCoverage> base = analyzePerClass(baselineExec);
         Map<String, IClassCoverage> cand = analyzePerClass(candidateExec);
@@ -61,7 +148,7 @@ public final class CoverageAnalyzer {
 
         Map<String, IClassCoverage> out = new HashMap<>();
         for (IClassCoverage cc : builder.getClasses()) {
-            out.put(cc.getName().replace('/', '.'), cc); // normalize to FQCN
+            out.put(cc.getName().replace('/', '.'), cc);
         }
         return out;
     }
