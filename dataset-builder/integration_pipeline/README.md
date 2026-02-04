@@ -38,6 +38,8 @@ Priority order (recommended run sequence):
 5) `send`  
 6) `compare`  
 7) `adopted-run`
+8) `adopted-filter`  
+9) `adopted-reduce`  
 
 Step descriptions:
 
@@ -48,6 +50,8 @@ Step descriptions:
 - `send` - send reduced tests + manual tests to the LLM adapter to produce adopted tests.
 - `compare` - compare adopted vs generated tests (PMD/CPD + tri-compare metrics).
 - `adopted-run` - execute adopted tests with JaCoCo and write `adopted_coverage_summary.csv`.
+- `adopted-filter` - run CoverageFilterApp using adopted + manual tests to compute deltas.
+- `adopted-reduce` - reduce adopted tests (default top 5; `--adopted-reduce-max-tests`).
 - `all` - run all steps in the priority order above.
 
 ## Inputs
@@ -57,14 +61,20 @@ Step descriptions:
 - `libs/*` for JUnit and runtime deps
 - `coverage-filter-1.0-SNAPSHOT.jar`
 - `jacoco-deps/org.jacoco.agent-run-0.8.14.jar`
+- adopted tests output root (`--adopted-dir`, default `result/llm-out`)
 
 ## Outputs
 
 - `build/` compiled test classes
-- `jacoco-out/` coverage exec files, logs, and summaries
-  - `jacoco-out/coverage_summary.csv`
-  - `jacoco-out/adopted_coverage_summary.csv`
-- `tmp/` intermediate artifacts (covfilter/reduced/compare)
+- `tmp/` logs, coverage exec files, and summaries
+  - `tmp/coverage_summary.csv`
+  - `tmp/adopted_coverage_summary.csv`
+- `result/` intermediate artifacts (covfilter/reduced/compare)
+  - `result/covfilter/` (generated covfilter outputs)
+  - `result/reduced-agt/` (reduced generated tests)
+  - `result/covfilter-adopted/` (adopted covfilter outputs)
+  - `result/reduced-adopted/` (reduced adopted tests)
+  - `result/compare/` (comparison CSVs)
 
 ## Notes
 

@@ -128,6 +128,13 @@ def first_test_source_for_fqcn(sources: List[Path], fqcn: Optional[str]) -> Opti
     return None
 
 
+def test_fqcn_from_source(src: Path) -> Optional[str]:
+    pkg, cls = parse_package_and_class(src)
+    if not cls:
+        return None
+    return f"{pkg}.{cls}" if pkg else cls
+
+
 def reduced_test_path(reduced_root: Path, target_id: str, generated_src: Path, top_n: int) -> Optional[Path]:
     pkg, cls = parse_package_and_class(generated_src)
     if not cls:
@@ -185,7 +192,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--includes", type=str, default="*")
     ap.add_argument("--dep-rounds", type=int, default=3, help="Max smart-compile dependency expansion rounds.")
     ap.add_argument("--tool-jar", type=str, default="coverage-filter-1.0-SNAPSHOT.jar", help="Path to the tool jar (RunOne/RunMany/ListTests)")
-    ap.add_argument("--step", choices=["compile", "filter", "reduce", "send", "compare", "run", "adopted-run", "all"], default="all", help="Execution step to run")
+    ap.add_argument(
+        "--step",
+        choices=[
+            "compile",
+            "filter",
+            "reduce",
+            "send",
+            "compare",
+            "run",
+            "adopted-filter",
+            "adopted-reduce",
+            "adopted-run",
+            "all",
+        ],
+        default="all",
+        help="Execution step to run",
+    )
     ap.add_argument("--timeout-ms", type=int, default=240_000, help="Per-test hard timeout in ms (also passed to RunOne). Use 0 to disable.")
     ap.add_argument(
         "--filter-only-agt-covered",
@@ -198,19 +221,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional path to coverage_summary.csv used by --filter-only-agt-covered (defaults to <out-dir>/coverage_summary.csv).",
     )
-    ap.add_argument("--reduced-out", type=str, default="result/reduced-agt", help="Output dir for reduced AGT tests.")
+    ap.add_argument("--reduced-out", type=str, default="results/reduced-agt", help="Output dir for reduced AGT tests.")
     ap.add_argument("--reduce-max-tests", type=int, default=100, help="Max number of top-priority tests to keep in reduced AGT class.")
     ap.add_argument("--send-script", type=str, default="", help="Optional external sender script. If empty, use pipeline_llm.")
     ap.add_argument("--send-api-url", type=str, default="http://localhost:8001/graphql", help="API URL for send_java_file_to_api.py.")
     ap.add_argument("--send-sleep-seconds", type=int, default=30, help="Sleep between sends.")
+    ap.add_argument("--adopted-dir", type=str, default="results/llm-out", help="Root dir for adopted tests (output from send/LLM).")
     ap.add_argument("--compare-root", type=str, default="integration_pipeline/comparison", help="Path to comparison folder (contains tools/ and configs/).")
-    ap.add_argument("--compare-out", type=str, default="result/compare", help="Output dir for AGT vs adopted comparison CSVs.")
+    ap.add_argument("--compare-out", type=str, default="results/compare", help="Output dir for AGT vs adopted comparison CSVs.")
     ap.add_argument("--compare-min-tokens", type=int, default=50, help="CPD minimum tokens.")
 
     # ---- CoverageFilterApp integration ----
     ap.add_argument("--do-covfilter", action="store_true", help="Run CoverageFilterApp 'filter' step per repo/fqcn when possible.")
     ap.add_argument("--covfilter-jar", type=str, default="", help="Path to coverage-filter-*.jar that contains app.CoverageFilterApp")
-    ap.add_argument("--covfilter-out", type=str, default="tmp/covfilter", help="Output dir for CoverageFilterApp results")
+    ap.add_argument("--covfilter-out", type=str, default="results/covfilter", help="Output dir for CoverageFilterApp results")
     ap.add_argument(
         "--sut-classes-dir",
         type=str,
@@ -220,6 +244,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "will be used directly and unpacked at runtime by CoverageFilterApp."
         ),
     )
+    ap.add_argument("--adopted-covfilter-out", type=str, default="results/covfilter-adopted", help="Output dir for adopted CoverageFilterApp results")
+    ap.add_argument("--adopted-reduced-out", type=str, default="results/reduced-adopted", help="Output dir for reduced adopted tests.")
+    ap.add_argument("--adopted-reduce-max-tests", type=int, default=5, help="Max number of top-priority tests to keep in reduced adopted class.")
     return ap
 
 
@@ -253,6 +280,9 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
     covfilter_jar = Path(args.covfilter_jar) if args.covfilter_jar else None
     covfilter_out_root = Path(args.covfilter_out)
     sut_classes_dir = Path(args.sut_classes_dir) if args.sut_classes_dir else None
+    adopted_covfilter_out_root = Path(args.adopted_covfilter_out)
+    adopted_reduced_out_root = Path(args.adopted_reduced_out)
+    adopted_root = Path(args.adopted_dir)
 
     # Global coverage report CSV
     summary_csv = out_dir / "coverage_summary.csv"
@@ -285,7 +315,16 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
     skipped = 0
 
     covfilter_allow: Optional[Set[Tuple[str, str]]] = None
-    if args.filter_only_agt_covered and args.step in ("filter", "all", "reduce", "send", "compare", "adopted-run"):
+    if args.filter_only_agt_covered and args.step in (
+        "filter",
+        "all",
+        "reduce",
+        "send",
+        "compare",
+        "adopted-filter",
+        "adopted-reduce",
+        "adopted-run",
+    ):
         summary_path = Path(args.coverage_summary) if args.coverage_summary else summary_csv
         if summary_path.exists():
             cov_rows = read_csv_rows(summary_path)
@@ -349,6 +388,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
         ensure_dir(target_build)
 
         sources: List[Path] = []
+        manual_sources: List[Path] = []
         repo_bucket_gen = generated_dir / repo_to_dir(repo)
         repo_bucket_man = manual_dir / repo_to_dir(repo)
 
@@ -379,6 +419,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
         if args.mode in ("manual", "both") and man_files:
             manual_primary = find_tests_in_bucket(repo_bucket_man, man_files)
             manual_all = expand_manual_sources(manual_primary)
+            manual_sources = list(manual_all)
             sources.extend(manual_all)
 
         # de-dupe
@@ -428,7 +469,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
             final_sources = sources
 
         # -------- CoverageFilterApp step (split before run tests) --------
-        manual_test_fqcn = first_test_fqcn_from_sources(final_sources, prefer_estest=False)
+        manual_test_fqcn = first_test_fqcn_from_sources(manual_sources or final_sources, prefer_estest=False)
         generated_test_fqcn = first_test_fqcn_from_sources(final_sources, prefer_estest=True)
 
         if do_covfilter and args.step in ("filter", "all"):
@@ -467,6 +508,65 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     print(f'[agt] covfilter: FAIL (see {cov_log})')
                     print("[agt][COVFILTER-TAIL]\n" + cov_tail)
 
+        if do_covfilter and args.step in ("adopted-filter", "all"):
+            if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
+                print(f'[agt] adopted-covfilter: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
+            elif covfilter_jar is None or not covfilter_jar.exists():
+                print(f'[agt] adopted-covfilter: Skip (missing --covfilter-jar): repo="{repo}" fqcn="{fqcn}"')
+            else:
+                adopted_src = adopted_test_path(adopted_root, target_id)
+                if not adopted_src or not adopted_src.exists():
+                    print(f'[agt] adopted-covfilter: Skip (missing adopted test): repo="{repo}" fqcn="{fqcn}"')
+                elif not manual_sources:
+                    print(f'[agt] adopted-covfilter: Skip (missing manual test source): repo="{repo}" fqcn="{fqcn}"')
+                else:
+                    adopted_test_fqcn = test_fqcn_from_source(adopted_src)
+                    if not adopted_test_fqcn or not manual_test_fqcn:
+                        print(f'[agt] adopted-covfilter: Skip (cannot parse test fqcn): repo="{repo}" fqcn="{fqcn}"')
+                    else:
+                        if sut_classes_dir is not None and sut_classes_dir.exists():
+                            cov_classes_dir = sut_classes_dir
+                        else:
+                            cov_classes_dir = sut_jar
+
+                        adopted_build = build_dir / "adopted-filter-classes" / target_id
+                        ensure_dir(adopted_build)
+                        adopt_compile_log = logs_dir / f"{target_id}.adopted.covfilter.compile.log"
+                        ok_adopt, adopt_tail, _ = compile_test_set_smart(
+                            java_files=manual_sources + [adopted_src],
+                            build_dir=adopted_build,
+                            libs_glob_cp=args.libs_cp,
+                            sut_jar=sut_jar,
+                            log_file=adopt_compile_log,
+                            repo_root_for_deps=repo_root_for_deps,
+                            max_rounds=args.dep_rounds,
+                        )
+                        if not ok_adopt:
+                            print(f'[agt] adopted-covfilter: Skip (compile failed): repo="{repo}" fqcn="{fqcn}" (see {adopt_compile_log})')
+                            print("[agt][ADOPTED-COMPILE-TAIL]\n" + adopt_tail)
+                        else:
+                            cov_out = adopted_covfilter_out_root / target_id
+                            cov_log = logs_dir / f"{target_id}.adopted.covfilter.log"
+                            libs_dir_arg = libs_dir_from_glob(args.libs_cp)
+
+                            print(f'[agt] Running adopted covfilter: repo="{repo}" fqcn="{fqcn}"')
+                            ok_cov, cov_tail = run_covfilter_app(
+                                coverage_filter_jar=covfilter_jar,
+                                libs_glob_cp=args.libs_cp,
+                                test_classes_dir=adopted_build,
+                                sut_classes_dir=cov_classes_dir,
+                                out_dir=cov_out,
+                                manual_test_fqcn=manual_test_fqcn,
+                                generated_test_fqcn=adopted_test_fqcn,
+                                jacoco_agent_jar=jacoco_agent,
+                                sut_cp_entry=sut_jar,
+                                libs_dir_arg=libs_dir_arg,
+                                log_file=cov_log,
+                            )
+                            if not ok_cov:
+                                print(f'[agt] adopted-covfilter: FAIL (see {cov_log})')
+                                print("[agt][ADOPTED-COVFILTER-TAIL]\n" + cov_tail)
+
         if args.step in ("reduce", "all"):
             reduced_root = Path(args.reduced_out)
             test_deltas_csv = covfilter_out_root / target_id / "test_deltas_all.csv"
@@ -497,6 +597,35 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     print(f'[agt] reduce: FAIL (see {reduced_log})')
                     print("[agt][REDUCE-TAIL]\n" + red_tail)
 
+        if args.step in ("adopted-reduce", "all"):
+            test_deltas_csv = adopted_covfilter_out_root / target_id / "test_deltas_all.csv"
+            adopted_src = adopted_test_path(adopted_root, target_id)
+            if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
+                print(f'[agt] adopted-reduce: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
+            elif covfilter_jar is None or not covfilter_jar.exists():
+                print(f'[agt] adopted-reduce: Skip (missing --covfilter-jar): repo="{repo}" fqcn="{fqcn}"')
+            elif not adopted_src or not adopted_src.exists():
+                print(f'[agt] adopted-reduce: Skip (missing adopted test source): repo="{repo}" fqcn="{fqcn}"')
+            elif not test_deltas_csv.exists():
+                print(f'[agt] adopted-reduce: Skip (missing test_deltas_all.csv): repo="{repo}" fqcn="{fqcn}"')
+            else:
+                reduced_out = adopted_reduced_out_root / target_id
+                reduced_log = logs_dir / f"{target_id}.adopted.reduce.log"
+                top_n = max(1, min(args.adopted_reduce_max_tests, 100))
+                print(f'[agt] Reducing adopted tests (top {top_n}): repo="{repo}" fqcn="{fqcn}"')
+                ok_red, red_tail = run_generate_reduced_app(
+                    coverage_filter_jar=covfilter_jar,
+                    libs_glob_cp=args.libs_cp,
+                    original_test_java=adopted_src,
+                    test_deltas_csv=test_deltas_csv,
+                    top_n=top_n,
+                    out_dir=reduced_out,
+                    log_file=reduced_log,
+                )
+                if not ok_red:
+                    print(f'[agt] adopted-reduce: FAIL (see {reduced_log})')
+                    print("[agt][ADOPTED-REDUCE-TAIL]\n" + red_tail)
+
         if args.step in ("send", "all"):
             send_script = Path(args.send_script) if args.send_script else None
             if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
@@ -513,7 +642,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     print(f'[agt] send: Skip (missing manual test source): repo="{repo}" fqcn="{fqcn}"')
                 else:
                     send_log = logs_dir / f"{target_id}.send.log"
-                    llm_out_root = Path("result/llm-out")
+                    llm_out_root = adopted_root
                     print(f'[agt] Sending reduced AGT to LLM: repo="{repo}" fqcn="{fqcn}"')
                     if send_script and send_script.exists():
                         cmd = [
@@ -550,7 +679,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                 top_n = max(1, min(args.reduce_max_tests, 100))
                 generated_test_src = first_test_source_for_fqcn(final_sources, generated_test_fqcn)
                 reduced_src = reduced_test_path(reduced_root, target_id, generated_test_src, top_n) if generated_test_src else None
-                adopted_src = adopted_test_path(Path("result/llm-out"), target_id)
+                adopted_src = adopted_test_path(adopted_root, target_id)
                 manual_test_src = first_test_source_for_fqcn(final_sources, manual_test_fqcn)
                 if not reduced_src or not reduced_src.exists():
                     print(f'[agt] compare: Skip (missing reduced AGT test): repo="{repo}" fqcn="{fqcn}"')
@@ -572,7 +701,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     except Exception as e:
                         print(f'[agt] compare: FAIL ({e}) repo="{repo}" fqcn="{fqcn}"')
                     tri_script = Path("integration_pipeline/comparison/tri_compare_tests.py")
-                    tri_csv = Path("result/compare/tri_compare.csv")
+                    tri_csv = Path("results/compare/tri_compare.csv")
                     tri_log = logs_dir / f"{target_id}.tri_compare.log"
                     try:
                         run_tri_compare_with_log(
@@ -680,7 +809,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
             if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
                 print(f'[agt] adopted-run: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
             else:
-                adopted_src = adopted_test_path(Path("result/llm-out"), target_id)
+                adopted_src = adopted_test_path(adopted_root, target_id)
                 if not adopted_src or not adopted_src.exists():
                     print(f'[agt] adopted-run: Skip (missing adopted test): repo="{repo}" fqcn="{fqcn}"')
                 else:

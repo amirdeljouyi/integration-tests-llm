@@ -7,7 +7,7 @@ STEP="${3:-all}"
 
 echo "[integration-pipeline] Starting (step: ${STEP})..."
 
-python -m integration_pipeline.pipeline_main \
+python -m src.pipeline_main \
   "${INV}" \
   "${MAP}" \
   --generated-dir ../collected-tests/generated \
@@ -21,6 +21,7 @@ python -m integration_pipeline.pipeline_main \
   --filter-only-agt-covered \
   --covfilter-jar coverage-filter-1.0-SNAPSHOT.jar \
   --covfilter-out result/covfilter \
+  --adopted-dir results/llm-out \
   --step "${STEP}"
 
 echo "[integration-pipeline] Done."
