@@ -75,6 +75,10 @@ JAVA21_HOME=/path/to/jdk21 ./run_fat_build.sh selected_cut_classes.csv
   - Outputs: `result/evosuite-report`, `result/generated-tests*`, and logs in `result/log/`
   - Example:
     - `REPOS_DIR=./repos OUTPUT_DIR=./result ./run-agt/run-agt.sh out/cut_to_fatjar_map.csv`
+- `integration_pipeline/`:
+  - Purpose: compile tests, run coverage, reduce/compare adopted vs generated tests
+  - Entrypoint: `integration_pipeline/run_integration_pipeline.sh`
+  - README: `integration_pipeline/README.md`
 
 ## Docker mode
 
