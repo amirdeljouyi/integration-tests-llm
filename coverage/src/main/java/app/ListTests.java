@@ -1,47 +1,43 @@
 package app;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.RepeatedTest;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.api.TestFactory;
-import org.junit.jupiter.api.TestTemplate;
-
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 
-public final class JUnit5MethodDiscoverer {
+public final class ListTests {
 
-    private final ClassLoader classLoader;
+    public static void main(String[] args) throws Exception {
+        if (args.length != 1) {
+            throw new IllegalArgumentException("Usage: ListTests <testClassFqcn>");
+        }
 
-    public JUnit5MethodDiscoverer(ClassLoader classLoader) {
-        this.classLoader = Objects.requireNonNull(classLoader, "classLoader");
-    }
-
-    public List<String> discoverTestMethods(String testClassFqcn) {
-        Class<?> c = load(testClassFqcn);
+        String fqcn = args[0];
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        Class<?> c = Class.forName(fqcn, true, cl);
 
         TestDetector.JUnitVersion version = TestDetector.detect(c);
-
+        
         List<String> methods = new ArrayList<>();
         if (version == TestDetector.JUnitVersion.JUNIT_5) {
-            methods = discoverJUnit5TestMethods(c);
+            methods = listJUnit5Tests(c);
         } else if (version == TestDetector.JUnitVersion.JUNIT_4) {
-            methods = discoverJUnit4TestMethods(c);
+            methods = listJUnit4Tests(c);
         } else {
-            methods = discoverJUnit5TestMethods(c);
+            // Default to trying to list both if unknown
+            methods = listJUnit5Tests(c);
             if (methods.isEmpty()) {
-                methods = discoverJUnit4TestMethods(c);
+                methods = listJUnit4Tests(c);
             }
         }
 
         methods.sort(Comparator.naturalOrder());
-        return methods;
+        for (String name : methods) {
+            System.out.println(name);
+        }
     }
 
-    private List<String> discoverJUnit5TestMethods(Class<?> c) {
+    private static List<String> listJUnit5Tests(Class<?> c) {
         List<String> methods = new ArrayList<>();
         for (Method m : c.getDeclaredMethods()) {
             if (isJUnit5TestMethod(m)) {
@@ -51,7 +47,7 @@ public final class JUnit5MethodDiscoverer {
         return methods;
     }
 
-    private List<String> discoverJUnit4TestMethods(Class<?> c) {
+    private static List<String> listJUnit4Tests(Class<?> c) {
         List<String> methods = new ArrayList<>();
         for (Method m : c.getDeclaredMethods()) {
             if (isJUnit4TestMethod(m)) {
@@ -61,7 +57,7 @@ public final class JUnit5MethodDiscoverer {
         return methods;
     }
 
-    private boolean isJUnit5TestMethod(Method m) {
+    private static boolean isJUnit5TestMethod(Method m) {
         try {
             return m.isAnnotationPresent(org.junit.jupiter.api.Test.class)
                     || m.isAnnotationPresent(org.junit.jupiter.api.RepeatedTest.class)
@@ -73,19 +69,11 @@ public final class JUnit5MethodDiscoverer {
         }
     }
 
-    private boolean isJUnit4TestMethod(Method m) {
+    private static boolean isJUnit4TestMethod(Method m) {
         try {
             return m.isAnnotationPresent(org.junit.Test.class);
         } catch (NoClassDefFoundError e) {
             return false;
-        }
-    }
-
-    private Class<?> load(String fqcn) {
-        try {
-            return Class.forName(fqcn, true, classLoader);
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException("Cannot load test class: " + fqcn, e);
         }
     }
 }
