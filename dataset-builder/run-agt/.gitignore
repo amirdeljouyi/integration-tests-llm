@@ -1,0 +1,6 @@
+*
+!/.gitignore
+!/run-agt.sh
+!/llmsuite-r.jar
+!/result/
+!/result/**
