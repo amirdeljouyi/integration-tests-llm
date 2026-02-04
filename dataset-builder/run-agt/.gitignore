@@ -4,3 +4,4 @@
 !/llmsuite-r.jar
 !/result/
 !/result/**
+*.log

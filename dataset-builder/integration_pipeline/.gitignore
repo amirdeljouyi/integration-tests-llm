@@ -14,5 +14,7 @@ tmp/
 # javac arg files
 javac.*.args
 
+*.exec
+*.log
 # macOS
 .DS_Store
