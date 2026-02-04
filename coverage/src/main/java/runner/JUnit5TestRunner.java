@@ -11,6 +11,10 @@ import org.junit.platform.launcher.listeners.TestExecutionSummary;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 public final class JUnit5TestRunner {
@@ -27,33 +31,73 @@ public final class JUnit5TestRunner {
         Map<String, List<TestId>> byClass = tests.stream()
                 .collect(Collectors.groupingBy(TestId::getClassName));
 
-        for (Map.Entry<String, List<TestId>> e : byClass.entrySet()) {
-            Class<?> testClass = loadClass(e.getKey());
+        long timeoutMs = TestTimeouts.resolveTimeoutMs();
+        ExecutorService executor = TestTimeouts.newExecutor("junit5-runner");
 
-            for (TestId t : e.getValue()) {
-                LauncherDiscoveryRequest request;
+        try {
+            for (Map.Entry<String, List<TestId>> e : byClass.entrySet()) {
+                Class<?> testClass = loadClass(e.getKey());
 
-                if (t.isClassOnly()) {
-                    request = LauncherDiscoveryRequestBuilder.request()
-                            .selectors(DiscoverySelectors.selectClass(testClass))
-                            .build();
-                } else {
-                    request = LauncherDiscoveryRequestBuilder.request()
-                            .selectors(DiscoverySelectors.selectMethod(testClass, t.getMethodName()))
-                            .build();
+                for (TestId t : e.getValue()) {
+                    LauncherDiscoveryRequest request;
+
+                    if (t.isClassOnly()) {
+                        request = LauncherDiscoveryRequestBuilder.request()
+                                .selectors(DiscoverySelectors.selectClass(testClass))
+                                .build();
+                    } else {
+                        request = LauncherDiscoveryRequestBuilder.request()
+                                .selectors(DiscoverySelectors.selectMethod(testClass, t.getMethodName()))
+                                .build();
+                    }
+
+                    SummaryGeneratingListener summary = new SummaryGeneratingListener();
+                    launcher.registerTestExecutionListeners(summary);
+
+                    String selector = t.isClassOnly()
+                            ? t.getClassName()
+                            : t.getClassName() + "#" + t.getMethodName();
+                    TestExecutionSummary s = runWithTimeout(executor, timeoutMs, selector, () -> {
+                        launcher.execute(request);
+                        return summary.getSummary();
+                    });
+
+                    if (s != null) {
+                        System.out.println("[JUnit5TestRunner] started=" + s.getTestsStartedCount()
+                                + " succeeded=" + s.getTestsSucceededCount()
+                                + " failed=" + s.getTestsFailedCount()
+                                + " skipped=" + s.getTestsSkippedCount());
+                    }
                 }
-
-                SummaryGeneratingListener summary = new SummaryGeneratingListener();
-                launcher.registerTestExecutionListeners(summary);
-
-                launcher.execute(request);
-
-                TestExecutionSummary s = summary.getSummary();
-                System.out.println("[JUnit5TestRunner] started=" + s.getTestsStartedCount()
-                        + " succeeded=" + s.getTestsSucceededCount()
-                        + " failed=" + s.getTestsFailedCount()
-                        + " skipped=" + s.getTestsSkippedCount());
             }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private TestExecutionSummary runWithTimeout(ExecutorService executor,
+                                                long timeoutMs,
+                                                String selector,
+                                                java.util.concurrent.Callable<TestExecutionSummary> task) {
+        if (timeoutMs <= 0) {
+            try {
+                return task.call();
+            } catch (Exception e) {
+                throw new RuntimeException("Test failed: " + selector, e);
+            }
+        }
+        Future<TestExecutionSummary> f = executor.submit(task);
+        try {
+            return f.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            f.cancel(true);
+            System.out.println("[JUnit5TestRunner] TIMEOUT after " + timeoutMs + "ms: " + selector);
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Test interrupted: " + selector, e);
+        } catch (Exception e) {
+            throw new RuntimeException("Test failed: " + selector, e);
         }
     }
 

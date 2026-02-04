@@ -7,6 +7,10 @@ import org.junit.runner.Result;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 public final class JUnit4TestRunner {
@@ -24,23 +28,65 @@ public final class JUnit4TestRunner {
         JUnitCore core = new JUnitCore();
         int totalRun = 0;
         int totalFail = 0;
+        int totalTimeout = 0;
+        long timeoutMs = TestTimeouts.resolveTimeoutMs();
+        ExecutorService executor = TestTimeouts.newExecutor("junit4-runner");
 
-        for (Map.Entry<String, List<TestId>> e : byClass.entrySet()) {
-            Class<?> testClass = loadClass(e.getKey());
+        try {
+            for (Map.Entry<String, List<TestId>> e : byClass.entrySet()) {
+                Class<?> testClass = loadClass(e.getKey());
 
-            for (TestId t : e.getValue()) {
-                Result r;
-                if (t.isClassOnly()) {
-                    r = core.run(testClass);
-                } else {
-                    r = core.run(Request.method(testClass, t.getMethodName()));
+                for (TestId t : e.getValue()) {
+                    String selector = t.isClassOnly()
+                            ? t.getClassName()
+                            : t.getClassName() + "#" + t.getMethodName();
+                    Result r = runWithTimeout(executor, timeoutMs, selector, () -> {
+                        if (t.isClassOnly()) {
+                            return core.run(testClass);
+                        }
+                        return core.run(Request.method(testClass, t.getMethodName()));
+                    });
+                    if (r != null) {
+                        totalRun += r.getRunCount();
+                        totalFail += r.getFailureCount();
+                    } else {
+                        totalFail += 1;
+                        totalTimeout += 1;
+                    }
                 }
-                totalRun += r.getRunCount();
-                totalFail += r.getFailureCount();
             }
+        } finally {
+            executor.shutdownNow();
         }
 
-        System.out.println("[JUnit4TestRunner] run=" + totalRun + " failed=" + totalFail);
+        System.out.println("[JUnit4TestRunner] run=" + totalRun + " failed=" + totalFail
+                + " timeout=" + totalTimeout);
+    }
+
+    private Result runWithTimeout(ExecutorService executor,
+                                  long timeoutMs,
+                                  String selector,
+                                  java.util.concurrent.Callable<Result> task) {
+        if (timeoutMs <= 0) {
+            try {
+                return task.call();
+            } catch (Exception e) {
+                throw new RuntimeException("Test failed: " + selector, e);
+            }
+        }
+        Future<Result> f = executor.submit(task);
+        try {
+            return f.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            f.cancel(true);
+            System.out.println("[JUnit4TestRunner] TIMEOUT after " + timeoutMs + "ms: " + selector);
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Test interrupted: " + selector, e);
+        } catch (Exception e) {
+            throw new RuntimeException("Test failed: " + selector, e);
+        }
     }
 
     private Class<?> loadClass(String fqcn) {

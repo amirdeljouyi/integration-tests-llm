@@ -2,6 +2,7 @@ package app;
 
 import jacoco.CoverageAnalyzer;
 import model.CoverageSet;
+import runner.TestTimeouts;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,32 +29,90 @@ public final class CoverageFilterApp {
      * Main entrypoint
      * ========================= */
     public static void main(String[] args) throws Exception {
-        if (args.length < 8) {
+        if (args.length < 9) {
             throw new IllegalArgumentException(
                     "Usage:\n" +
                             "  <mode: class|filter>\n" +
                             "  <classesDirRel> <workDirRel>\n" +
                             "  <manualTestClass> <agtTestClass>\n" +
-                            "  <jacocoAgentRel> <sutClassesRel> <libsDir>"
+                            "  <jacocoAgentRel> <sutClassesRel> <libsDir>\n" +
+                            "  <testClassesDirRel>\n" +
+                            "  [testTimeoutMs]"
             );
         }
 
         String mode = args[0];
+        if (args.length >= 10) {
+            System.setProperty(TestTimeouts.TIMEOUT_PROP, args[9]);
+        }
 
         File jarDir = resolveJarDir(CoverageFilterApp.class);
 
-        File classesDir = new File(jarDir, args[1]).getCanonicalFile();
-        File workDir = new File(jarDir, args[2]).getCanonicalFile();
+        // Resolve all file arguments: if the path provided is absolute, use it as-is;
+        // otherwise, resolve relative to the jar's directory. This prevents accidental
+        // concatenation of the jar directory with absolute-looking paths that are
+        // missing a leading slash (e.g., "Users/..." on Unix) which would otherwise
+        // result in invalid paths like ".../find-unique/Users/...".
+        File classesInput = resolveMaybeAbsolute(jarDir, args[1]);
+        File workDir = resolveMaybeAbsolute(jarDir, args[2]);
 
         String manualTestClass = args[3];
         String agtTestClass = args[4];
 
-        String jacocoAgentJar = new File(jarDir, args[5]).getCanonicalPath();
-        String sutClassesPath = new File(jarDir, args[6]).getCanonicalPath();
-        File libsDir = new File(jarDir, args[7]).getCanonicalFile();
+        File jacocoFile = resolveMaybeAbsolute(jarDir, args[5]);
+        File sutClassesFile = resolveMaybeAbsolute(jarDir, args[6]);
+        File libsDir = resolveMaybeAbsolute(jarDir, args[7]);
+        File testClassesFile = resolveMaybeAbsolute(jarDir, args[8]);
 
-        String testClassesPath = new File(jarDir, "build/test-classes").getCanonicalPath();
-        String toolJarPath = new File(jarDir, "coverage-filter-1.0-SNAPSHOT.jar").getCanonicalPath();
+        // Unpack classes if provided as a fat JAR; otherwise, use the directory directly
+        File classesDir;
+        File tempExtractDir = null;
+        if (classesInput.isFile() && classesInput.getName().endsWith(".jar")) {
+            java.nio.file.Path tmpDirPath = java.nio.file.Files.createTempDirectory("covfilter_classes_");
+            tempExtractDir = tmpDirPath.toFile();
+            java.util.jar.JarFile jarFile = new java.util.jar.JarFile(classesInput);
+            try {
+                java.util.Enumeration<java.util.jar.JarEntry> entries = jarFile.entries();
+                while (entries.hasMoreElements()) {
+                    java.util.jar.JarEntry entry = entries.nextElement();
+                    // Skip multi-release classes and other nested versions to avoid
+                    // duplicate class names (e.g., META-INF/versions/9/net/...)
+                    String name = entry.getName();
+                    if (entry.isDirectory()) {
+                        continue;
+                    }
+                    // Skip multi-release versions, IDE-specific launcher resources, and
+                    // '.class.ide-launcher-res' files that cause duplicate class names
+                    if (name != null) {
+                        if (name.startsWith("META-INF/versions/") || name.startsWith("META-INF/ide-deps/")) {
+                            continue;
+                        }
+                        if (name.endsWith(".class.ide-launcher-res")) {
+                            continue;
+                        }
+                    }
+                    java.io.File outFile = new java.io.File(tempExtractDir, name);
+                    java.io.File parent = outFile.getParentFile();
+                    if (parent != null && !parent.exists()) {
+                        parent.mkdirs();
+                    }
+                    try (java.io.InputStream in = jarFile.getInputStream(entry);
+                         java.io.OutputStream out = new java.io.FileOutputStream(outFile)) {
+                        in.transferTo(out);
+                    }
+                }
+            } finally {
+                jarFile.close();
+            }
+            classesDir = tempExtractDir.getCanonicalFile();
+        } else {
+            classesDir = classesInput.getCanonicalFile();
+        }
+
+        String jacocoAgentJar = jacocoFile.getCanonicalPath();
+        String sutClassesPath = sutClassesFile.getCanonicalPath();
+        String testClassesPath = testClassesFile.getCanonicalPath();
+        String toolJarPath = resolveJarPath(CoverageFilterApp.class);
 
         ForkedJacocoRunner runner = new ForkedJacocoRunner(
                 jacocoAgentJar,
@@ -69,7 +128,7 @@ public final class CoverageFilterApp {
                 runner
         );
 
-        app.run(mode, workDir, manualTestClass, agtTestClass);
+        app.run(mode, workDir.getCanonicalFile(), manualTestClass, agtTestClass);
     }
 
     public void runClassLevel(File workDir,
@@ -81,11 +140,11 @@ public final class CoverageFilterApp {
         File manualExec = new File(workDir, "manual.exec");
         File agtExec = new File(workDir, "agt.exec");
 
-        runner.runJUnit5Class(manualTestClass, manualExec, false);
+        runner.runTestClass(manualTestClass, manualExec, false);
         System.out.println("[CoverageFilterApp] wrote " + manualExec.getPath()
                 + " size=" + manualExec.length());
 
-        runner.runJUnit5Class(agtTestClass, agtExec, false);
+        runner.runTestClass(agtTestClass, agtExec, false);
         System.out.println("[CoverageFilterApp] wrote " + agtExec.getPath()
                 + " size=" + agtExec.length());
 
@@ -120,7 +179,7 @@ public final class CoverageFilterApp {
          * 2) Discover AGT methods (forked)
          * ========================= */
         java.util.List<String> methods = runner.runAndCaptureLines(
-                        "app.ListJUnit5Tests",
+                        "app.ListTests",
                         java.util.List.of(agtTestClass)
                 ).stream()
                 .filter(s -> s != null && !s.isBlank())
@@ -327,18 +386,49 @@ public final class CoverageFilterApp {
      * Jar directory resolver
      * ========================= */
     private static File resolveJarDir(Class<?> anchor) {
+        File location = resolveJarFile(anchor);
+        return location.isFile()
+                ? Objects.requireNonNull(location.getParentFile())
+                : location;
+    }
+
+    private static String resolveJarPath(Class<?> anchor) {
+        return resolveJarFile(anchor).getAbsolutePath();
+    }
+
+    private static File resolveJarFile(Class<?> anchor) {
         try {
             CodeSource cs = anchor.getProtectionDomain().getCodeSource();
             if (cs == null || cs.getLocation() == null) {
                 return new File(".").getAbsoluteFile();
             }
-
-            File location = new File(cs.getLocation().toURI());
-            return location.isFile()
-                    ? Objects.requireNonNull(location.getParentFile())
-                    : location;
+            return new File(cs.getLocation().toURI());
         } catch (URISyntaxException e) {
             return new File(".").getAbsoluteFile();
         }
+    }
+
+    /**
+     * Resolve a path argument relative to the jar directory unless it's already absolute.
+     * This helper avoids accidentally prefixing the jar directory onto absolute paths or
+     * pseudo-absolute paths that lack a leading slash (e.g., "Users/..." on Unix).
+     *
+     * @param jarDir the base directory to resolve relative paths against
+     * @param arg the raw argument string
+     * @return a File representing the resolved path
+     */
+    private static File resolveMaybeAbsolute(File jarDir, String arg) {
+        File f = new File(arg);
+        // If the path starts with a file separator (Unix) or has a drive letter (Windows), treat it as absolute.
+        if (f.isAbsolute()) {
+            return f;
+        }
+        // Additionally, on Unix-like systems, a path starting with "Users/" is likely intended to be absolute
+        // (macOS often begins absolute paths with "/Users/..."), so check for that case.
+        String sep = File.separator;
+        if (sep.equals("/") && arg.startsWith("Users" + sep)) {
+            return new File(sep + arg);
+        }
+        return new File(jarDir, arg);
     }
 }
