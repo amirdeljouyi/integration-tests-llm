@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Local tooling cache
+.cache/
+
+# Generated outputs
+/out/
+/repos/
+/build/
+/jacoco-out/
+/tmp/
