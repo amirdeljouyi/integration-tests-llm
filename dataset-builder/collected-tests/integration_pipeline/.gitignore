@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtualenv
+.env/
+
+# Build and pipeline outputs
+build/
+tmp/
+!tmp/coverage_summary.csv
+!tmp/adopted_coverage_summary.csv
+
+# javac arg files
+javac.*.args
+
+# macOS
+.DS_Store
