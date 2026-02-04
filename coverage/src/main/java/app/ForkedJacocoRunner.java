@@ -30,7 +30,7 @@ public final class ForkedJacocoRunner {
         this.runOneMainClass = Objects.requireNonNull(runOneMainClass);
     }
 
-    public void runJUnit5Class(String testClassFqcn, File execFile, boolean append) throws Exception {
+    public void runTestClass(String testClassFqcn, File execFile, boolean append) throws Exception {
         Objects.requireNonNull(testClassFqcn);
         Objects.requireNonNull(execFile);
 
@@ -41,18 +41,19 @@ public final class ForkedJacocoRunner {
         List<String> cmd = new ArrayList<>();
         cmd.add("java");
 
+        addTimeoutProperty(cmd);
+
         cmd.add("--add-opens"); cmd.add("java.base/java.lang=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.lang.reflect=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.util=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.net=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.desktop/java.awt=ALL-UNNAMED");
 
-        cmd.add("-Djava.util.logging.manager=org.jboss.logmanager.LogManager");
+        if (hasJbossLogmanager()) {
+            cmd.add("-Djava.util.logging.manager=org.jboss.logmanager.LogManager");
+        }
 
-        cmd.add("-javaagent:" + jacocoAgentJar
-                + "=destfile=" + execFile.getPath()
-                + ",append=" + append
-                + ",includes=io.quarkus.*");
+        cmd.add(buildJacocoAgentArg(execFile, append));
 
         cmd.add("-cp");
         cmd.add(buildClasspath());
@@ -92,18 +93,19 @@ public final class ForkedJacocoRunner {
         List<String> cmd = new ArrayList<>();
         cmd.add("java");
 
+        addTimeoutProperty(cmd);
+
         cmd.add("--add-opens"); cmd.add("java.base/java.lang=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.lang.reflect=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.util=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.net=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.desktop/java.awt=ALL-UNNAMED");
 
-        cmd.add("-Djava.util.logging.manager=org.jboss.logmanager.LogManager");
+        if (hasJbossLogmanager()) {
+            cmd.add("-Djava.util.logging.manager=org.jboss.logmanager.LogManager");
+        }
 
-        cmd.add("-javaagent:" + jacocoAgentJar
-                + "=destfile=" + execFile.getPath()
-                + ",append=" + append
-                + ",includes=io.quarkus.*");
+        cmd.add(buildJacocoAgentArg(execFile, append));
 
         cmd.add("-cp");
         cmd.add(buildClasspath());
@@ -137,13 +139,17 @@ public final class ForkedJacocoRunner {
         List<String> cmd = new ArrayList<>();
         cmd.add("java");
 
+        addTimeoutProperty(cmd);
+
         cmd.add("--add-opens"); cmd.add("java.base/java.lang=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.lang.reflect=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.util=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.net=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.desktop/java.awt=ALL-UNNAMED");
 
-        cmd.add("-Djava.util.logging.manager=org.jboss.logmanager.LogManager");
+        if (hasJbossLogmanager()) {
+            cmd.add("-Djava.util.logging.manager=org.jboss.logmanager.LogManager");
+        }
 
         cmd.add("-cp");
         cmd.add(buildClasspath());
@@ -169,5 +175,33 @@ public final class ForkedJacocoRunner {
             throw new RuntimeException("Fork failed (exit=" + exit + ") main=" + mainClass);
         }
         return lines;
+    }
+
+    private void addTimeoutProperty(List<String> cmd) {
+        String timeoutMs = System.getProperty(runner.TestTimeouts.TIMEOUT_PROP);
+        if (timeoutMs != null && !timeoutMs.isBlank()) {
+            cmd.add("-D" + runner.TestTimeouts.TIMEOUT_PROP + "=" + timeoutMs.trim());
+        }
+    }
+
+    private String buildJacocoAgentArg(File execFile, boolean append) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("-javaagent:").append(jacocoAgentJar)
+                .append("=destfile=").append(execFile.getPath())
+                .append(",append=").append(append);
+        String includes = System.getProperty("jacoco.includes");
+        if (includes != null && !includes.isBlank()) {
+            sb.append(",includes=").append(includes.trim());
+        }
+        return sb.toString();
+    }
+
+    private boolean hasJbossLogmanager() {
+        if (!libsDir.isDirectory()) {
+            return false;
+        }
+        File[] jars = libsDir.listFiles((d, name) ->
+                name != null && name.startsWith("jboss-logmanager") && name.endsWith(".jar"));
+        return jars != null && jars.length > 0;
     }
 }
