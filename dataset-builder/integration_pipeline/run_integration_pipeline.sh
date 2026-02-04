@@ -10,17 +10,17 @@ echo "[integration-pipeline] Starting (step: ${STEP})..."
 python -m integration_pipeline.pipeline_main \
   "${INV}" \
   "${MAP}" \
-  --generated-dir ../generated \
-  --manual-dir ../manual \
-  --repos-dir ../../repos \
+  --generated-dir ../collected-tests/generated \
+  --manual-dir ../collected-tests/manual \
+  --repos-dir ../repos \
   --libs-cp "libs/*" \
   --build-dir build/agt \
-  --out-dir jacoco-out/agt \
+  --out-dir tmp \
   --mode both \
   --do-covfilter \
   --filter-only-agt-covered \
   --covfilter-jar coverage-filter-1.0-SNAPSHOT.jar \
-  --covfilter-out tmp/covfilter \
+  --covfilter-out result/covfilter \
   --step "${STEP}"
 
 echo "[integration-pipeline] Done."

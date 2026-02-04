@@ -179,7 +179,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--repos-dir", type=str, default="../repos", help="Repo root used only for dependency auto-include.")
     ap.add_argument("--libs-cp", type=str, default="libs/*")
     ap.add_argument("--jacoco-agent", type=str, default="jacoco-deps/org.jacoco.agent-run-0.8.14.jar")
-    ap.add_argument("--out-dir", type=str, default="jacoco-out/agt")
+    ap.add_argument("--out-dir", type=str, default="tmp")
     ap.add_argument("--build-dir", type=str, default="build/agt")
     ap.add_argument("--mode", choices=["generated", "manual", "both"], default="both")
     ap.add_argument("--includes", type=str, default="*")
@@ -198,19 +198,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional path to coverage_summary.csv used by --filter-only-agt-covered (defaults to <out-dir>/coverage_summary.csv).",
     )
-    ap.add_argument("--reduced-out", type=str, default="tmp/reduced-agt", help="Output dir for reduced AGT tests.")
+    ap.add_argument("--reduced-out", type=str, default="result/reduced-agt", help="Output dir for reduced AGT tests.")
     ap.add_argument("--reduce-max-tests", type=int, default=100, help="Max number of top-priority tests to keep in reduced AGT class.")
     ap.add_argument("--send-script", type=str, default="", help="Optional external sender script. If empty, use pipeline_llm.")
     ap.add_argument("--send-api-url", type=str, default="http://localhost:8001/graphql", help="API URL for send_java_file_to_api.py.")
     ap.add_argument("--send-sleep-seconds", type=int, default=30, help="Sleep between sends.")
     ap.add_argument("--compare-root", type=str, default="integration_pipeline/comparison", help="Path to comparison folder (contains tools/ and configs/).")
-    ap.add_argument("--compare-out", type=str, default="tmp/compare", help="Output dir for AGT vs adopted comparison CSVs.")
+    ap.add_argument("--compare-out", type=str, default="result/compare", help="Output dir for AGT vs adopted comparison CSVs.")
     ap.add_argument("--compare-min-tokens", type=int, default=50, help="CPD minimum tokens.")
 
     # ---- CoverageFilterApp integration ----
     ap.add_argument("--do-covfilter", action="store_true", help="Run CoverageFilterApp 'filter' step per repo/fqcn when possible.")
     ap.add_argument("--covfilter-jar", type=str, default="", help="Path to coverage-filter-*.jar that contains app.CoverageFilterApp")
-    ap.add_argument("--covfilter-out", type=str, default="jacoco-out/covfilter", help="Output dir for CoverageFilterApp results")
+    ap.add_argument("--covfilter-out", type=str, default="tmp/covfilter", help="Output dir for CoverageFilterApp results")
     ap.add_argument(
         "--sut-classes-dir",
         type=str,
@@ -513,7 +513,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     print(f'[agt] send: Skip (missing manual test source): repo="{repo}" fqcn="{fqcn}"')
                 else:
                     send_log = logs_dir / f"{target_id}.send.log"
-                    llm_out_root = Path("tmp/llm-out")
+                    llm_out_root = Path("result/llm-out")
                     print(f'[agt] Sending reduced AGT to LLM: repo="{repo}" fqcn="{fqcn}"')
                     if send_script and send_script.exists():
                         cmd = [
@@ -550,7 +550,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                 top_n = max(1, min(args.reduce_max_tests, 100))
                 generated_test_src = first_test_source_for_fqcn(final_sources, generated_test_fqcn)
                 reduced_src = reduced_test_path(reduced_root, target_id, generated_test_src, top_n) if generated_test_src else None
-                adopted_src = adopted_test_path(Path("tmp/llm-out"), target_id)
+                adopted_src = adopted_test_path(Path("result/llm-out"), target_id)
                 manual_test_src = first_test_source_for_fqcn(final_sources, manual_test_fqcn)
                 if not reduced_src or not reduced_src.exists():
                     print(f'[agt] compare: Skip (missing reduced AGT test): repo="{repo}" fqcn="{fqcn}"')
@@ -572,7 +572,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     except Exception as e:
                         print(f'[agt] compare: FAIL ({e}) repo="{repo}" fqcn="{fqcn}"')
                     tri_script = Path("integration_pipeline/comparison/tri_compare_tests.py")
-                    tri_csv = Path("tmp/compare/tri_compare.csv")
+                    tri_csv = Path("result/compare/tri_compare.csv")
                     tri_log = logs_dir / f"{target_id}.tri_compare.log"
                     try:
                         run_tri_compare_with_log(
@@ -680,7 +680,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
             if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
                 print(f'[agt] adopted-run: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
             else:
-                adopted_src = adopted_test_path(Path("tmp/llm-out"), target_id)
+                adopted_src = adopted_test_path(Path("result/llm-out"), target_id)
                 if not adopted_src or not adopted_src.exists():
                     print(f'[agt] adopted-run: Skip (missing adopted test): repo="{repo}" fqcn="{fqcn}"')
                 else:
