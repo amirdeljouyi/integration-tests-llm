@@ -1,6 +1,3 @@
-Sure thing—this is a solid integration target, and I’ve merged the AGT coverage into the existing manual suite while matching the current JUnit 5 + `Assertions` style and keeping changes minimal. Below is the full merged Java test file as requested.
-
-```java
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with

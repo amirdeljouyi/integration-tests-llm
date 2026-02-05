@@ -1,6 +1,3 @@
-Sounds good — here’s the fully merged Java test code with the AGT tests integrated into the existing manual suite conventions.
-
-```java
 package com.orientechnologies.orient.core.record.impl;
 
 import static org.junit.Assert.assertEquals;

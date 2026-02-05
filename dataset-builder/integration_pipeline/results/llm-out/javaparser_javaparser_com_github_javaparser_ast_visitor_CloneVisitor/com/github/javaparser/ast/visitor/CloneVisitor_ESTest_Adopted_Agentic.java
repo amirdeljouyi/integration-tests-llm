@@ -1,6 +1,3 @@
-Just as a heads-up, I went ahead and fully merged the provided AGT tests into the existing manual `CloneVisitorTest` while keeping the style consistent with the current file.
-
-```java
 /*
  * Copyright (C) 2007-2010 Júlio Vilmar Gesser.
  * Copyright (C) 2011, 2013-2024 The JavaParser Team.
