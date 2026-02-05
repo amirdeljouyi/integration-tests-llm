@@ -7,11 +7,15 @@ from typing import Optional
 import requests
 
 
-def _adopted_class_name_from_path(path: Path) -> str:
+def _output_class_name_from_path(path: Path, suffix: str) -> str:
     stem = path.stem
     if "_Top" in stem:
         stem = stem.split("_Top", 1)[0]
-    return f"{stem}_Adopted"
+    if stem.endswith("_Improved"):
+        stem = stem[: -len("_Improved")]
+    if stem.endswith("_Adopted"):
+        stem = stem[: -len("_Adopted")]
+    return f"{stem}{suffix}"
 
 
 def _rewrite_class_name(source: str, new_name: str) -> str:
@@ -53,7 +57,7 @@ class LlmSender:
     def read_java_file(file_path: Path) -> str:
         return file_path.read_text(encoding="utf-8", errors="ignore")
 
-    def send_to_strawberry_api(self, agt_code: str, mwt_code: str) -> Optional[str]:
+    def send_to_strawberry_api(self, agt_code: str, mwt_code: str, *, prompt_type: str) -> Optional[str]:
         query = """
         query GenerateTestClass($prompt: Prompt!) {
             prompt(prompt: $prompt) {
@@ -63,9 +67,9 @@ class LlmSender:
         """
 
         variables = {
-            "prompt": {
-                "promptText": agt_code,
-                "promptType": "integration_improvement",
+                "prompt": {
+                    "promptText": agt_code,
+                "promptType": prompt_type,
                 "additionalParam": mwt_code,
             }
         }
@@ -90,18 +94,20 @@ class LlmSender:
             self,
             *,
             agt_file_path: Path,
-            mwt_file_path: Path,
+            mwt_file_path: Optional[Path],
             out_path: Path,
+            prompt_type: str,
+            output_suffix: str,
     ) -> bool:
         agt_code = self.read_java_file(agt_file_path)
-        mwt_code = self.read_java_file(mwt_file_path)
+        mwt_code = self.read_java_file(mwt_file_path) if mwt_file_path else ""
 
-        llm_response = self.send_to_strawberry_api(agt_code, mwt_code)
+        llm_response = self.send_to_strawberry_api(agt_code, mwt_code, prompt_type=prompt_type)
         if not llm_response:
             return False
 
-        adopted_name = _adopted_class_name_from_path(agt_file_path)
-        rewritten = _rewrite_class_name(llm_response, adopted_name)
+        out_name = _output_class_name_from_path(agt_file_path, output_suffix)
+        rewritten = _rewrite_class_name(llm_response, out_name)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(rewritten, encoding="utf-8", errors="ignore")
@@ -111,19 +117,21 @@ class LlmSender:
             self,
             *,
             agt_file_path: Path,
-            mwt_file_path: Path,
+            mwt_file_path: Optional[Path],
             out_root: Path,
             target_id: str,
+            prompt_type: str,
+            output_suffix: str,
     ) -> Optional[Path]:
         agt_code = self.read_java_file(agt_file_path)
-        mwt_code = self.read_java_file(mwt_file_path)
+        mwt_code = self.read_java_file(mwt_file_path) if mwt_file_path else ""
 
-        llm_response = self.send_to_strawberry_api(agt_code, mwt_code)
+        llm_response = self.send_to_strawberry_api(agt_code, mwt_code, prompt_type=prompt_type)
         if not llm_response:
             return None
 
-        adopted_name = _adopted_class_name_from_path(agt_file_path)
-        rewritten = _rewrite_class_name(llm_response, adopted_name)
+        out_name = _output_class_name_from_path(agt_file_path, output_suffix)
+        rewritten = _rewrite_class_name(llm_response, out_name)
         return write_adopted_output(out_root=out_root, target_id=target_id, source=rewritten)
 
 
@@ -131,35 +139,43 @@ def read_java_file(file_path: Path) -> str:
     return LlmSender.read_java_file(file_path)
 
 
-def send_to_strawberry_api(api_url: str, agt_code: str, mwt_code: str) -> Optional[str]:
-    return LlmSender(api_url).send_to_strawberry_api(agt_code, mwt_code)
+def send_to_strawberry_api(api_url: str, agt_code: str, mwt_code: str, *, prompt_type: str) -> Optional[str]:
+    return LlmSender(api_url).send_to_strawberry_api(agt_code, mwt_code, prompt_type=prompt_type)
 
 
 def send_reduced_test(
         *,
         agt_file_path: Path,
-        mwt_file_path: Path,
+        mwt_file_path: Optional[Path],
         api_url: str,
         out_path: Path,
+        prompt_type: str,
+        output_suffix: str,
 ) -> bool:
     return LlmSender(api_url).send_reduced_test(
         agt_file_path=agt_file_path,
         mwt_file_path=mwt_file_path,
         out_path=out_path,
+        prompt_type=prompt_type,
+        output_suffix=output_suffix,
     )
 
 
 def send_reduced_test_to_dir(
         *,
         agt_file_path: Path,
-        mwt_file_path: Path,
+        mwt_file_path: Optional[Path],
         api_url: str,
         out_root: Path,
         target_id: str,
+        prompt_type: str,
+        output_suffix: str,
 ) -> Optional[Path]:
     return LlmSender(api_url).send_reduced_test_to_dir(
         agt_file_path=agt_file_path,
         mwt_file_path=mwt_file_path,
         out_root=out_root,
         target_id=target_id,
+        prompt_type=prompt_type,
+        output_suffix=output_suffix,
     )
