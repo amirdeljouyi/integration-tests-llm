@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import fnmatch
 import subprocess
 import time
@@ -22,6 +24,7 @@ from .pipeline_compile import compile_test_set_smart
 from .pipeline_run import run_one_test_with_jacoco, get_coverage_stats
 from .pipeline_covfilter import run_covfilter_app, run_generate_reduced_app
 from .pipeline_llm import send_reduced_test_to_dir
+from .pipeline_agent import run_codex_integration
 from .pipeline_compare import compare_tests, run_tri_compare, run_tri_compare_with_log
 
 
@@ -156,6 +159,14 @@ def adopted_test_path(adopted_root: Path, target_id: str) -> Optional[Path]:
     return matches[0] if matches else None
 
 
+def improved_test_path(adopted_root: Path, target_id: str) -> Optional[Path]:
+    base = adopted_root / target_id
+    if not base.exists():
+        return None
+    matches = list(base.rglob("*_Improved.java"))
+    return matches[0] if matches else None
+
+
 def libs_dir_from_glob(libs_glob_cp: str) -> Path:
     """
     CoverageFilterApp wants a libs DIRECTORY arg (e.g., 'libs'), not 'libs/*'.
@@ -199,6 +210,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "filter",
             "reduce",
             "send",
+            "llm-all",
+            "llm-agt-improvement",
+            "llm-integration",
+            "llm-integration-step-by-step",
+            "agent",
             "compare",
             "run",
             "adopted-filter",
@@ -227,6 +243,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--send-api-url", type=str, default="http://localhost:8001/graphql", help="API URL for send_java_file_to_api.py.")
     ap.add_argument("--send-sleep-seconds", type=int, default=30, help="Sleep between sends.")
     ap.add_argument("--adopted-dir", type=str, default="results/llm-out", help="Root dir for adopted tests (output from send/LLM).")
+    ap.add_argument("--agent-model", type=str, default="", help="Codex model name (empty = use CLI default).")
+    ap.add_argument("--agent-max-context-files", type=int, default=12, help="Max repo context files to include in agent prompt.")
+    ap.add_argument("--agent-max-context-chars", type=int, default=40_000, help="Max total repo context characters for agent prompt.")
+    ap.add_argument("--agent-max-prompt-chars", type=int, default=60_000, help="Max total prompt characters for agent request.")
     ap.add_argument("--compare-root", type=str, default="integration_pipeline/comparison", help="Path to comparison folder (contains tools/ and configs/).")
     ap.add_argument("--compare-out", type=str, default="results/compare", help="Output dir for AGT vs adopted comparison CSVs.")
     ap.add_argument("--compare-min-tokens", type=int, default=50, help="CPD minimum tokens.")
@@ -250,10 +270,49 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _load_dotenv_manual(path: Path) -> None:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return
+    for line in lines:
+        raw = line.strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            continue
+        key, val = raw.split("=", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
+def _load_dotenv_if_present() -> None:
+    roots = [Path.cwd(), Path(__file__).resolve().parents[1]]
+    checked = set()
+    for root in roots:
+        for parent in [root, *root.parents]:
+            for name in ("local.env", "config.env"):
+                dotenv_path = parent / name
+                if dotenv_path in checked:
+                    continue
+                checked.add(dotenv_path)
+                if not dotenv_path.exists():
+                    continue
+                try:
+                    from dotenv import load_dotenv
+                except ImportError:
+                    _load_dotenv_manual(dotenv_path)
+                    return
+                load_dotenv(dotenv_path)
+                return
+
+
 def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
     if args is None:
         ap = build_arg_parser()
         args = ap.parse_args()
+
+    _load_dotenv_if_present()
 
     inventory_csv = Path(args.tests_inventory_csv)
     map_csv = Path(args.cut_to_fatjar_map_csv)
@@ -320,6 +379,11 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
         "all",
         "reduce",
         "send",
+        "llm-all",
+        "llm-agt-improvement",
+        "llm-integration",
+        "llm-integration-step-by-step",
+        "agent",
         "compare",
         "adopted-filter",
         "adopted-reduce",
@@ -626,7 +690,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     print(f'[agt] adopted-reduce: FAIL (see {reduced_log})')
                     print("[agt][ADOPTED-REDUCE-TAIL]\n" + red_tail)
 
-        if args.step in ("send", "all"):
+        if args.step in ("send", "llm-all", "llm-agt-improvement", "llm-integration", "llm-integration-step-by-step", "all"):
             send_script = Path(args.send_script) if args.send_script else None
             if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
                 print(f'[agt] send: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
@@ -634,42 +698,97 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                 reduced_root = Path(args.reduced_out)
                 top_n = max(1, min(args.reduce_max_tests, 100))
                 generated_test_src = first_test_source_for_fqcn(final_sources, generated_test_fqcn)
-                manual_test_src = first_test_source_for_fqcn(final_sources, manual_test_fqcn)
+                manual_test_src = first_test_source_for_fqcn(manual_sources or final_sources, manual_test_fqcn)
                 reduced_src = reduced_test_path(reduced_root, target_id, generated_test_src, top_n) if generated_test_src else None
-                if not reduced_src or not reduced_src.exists():
-                    print(f'[agt] send: Skip (missing reduced AGT test): repo="{repo}" fqcn="{fqcn}"')
-                elif not manual_test_src or not manual_test_src.exists():
-                    print(f'[agt] send: Skip (missing manual test source): repo="{repo}" fqcn="{fqcn}"')
-                else:
-                    send_log = logs_dir / f"{target_id}.send.log"
+                improved_src = improved_test_path(adopted_root, target_id)
+
+                phases = []
+                if args.step in ("send", "llm-all", "all"):
+                    phases.append(("llm-all", "integration_all", "_Adopted", reduced_src))
+                if args.step == "llm-agt-improvement":
+                    phases.append(("llm-agt-improvement", "integration_improvement", "_Improved", reduced_src))
+                if args.step == "llm-integration":
+                    phases.append(("llm-integration", "integration_merge", "_Adopted", improved_src))
+                if args.step == "llm-integration-step-by-step":
+                    phases.append(("llm-integration-step-by-step", "integration_step_by_step", "_Adopted_StepByStep", improved_src))
+
+                for phase_name, prompt_type, output_suffix, agt_src in phases:
+                    if phase_name == "llm-integration" and not improved_src:
+                        print(f'[agt] {phase_name}: Skip (missing improved test): repo="{repo}" fqcn="{fqcn}"')
+                        continue
+                    if not agt_src or not agt_src.exists():
+                        print(f'[agt] {phase_name}: Skip (missing AGT test): repo="{repo}" fqcn="{fqcn}"')
+                        continue
+                    if phase_name != "llm-agt-improvement":
+                        if not manual_test_src or not manual_test_src.exists():
+                            print(f'[agt] {phase_name}: Skip (missing manual test source): repo="{repo}" fqcn="{fqcn}"')
+                            continue
+
+                    mwt_src = None if phase_name == "llm-agt-improvement" else manual_test_src
+
+                    send_log = logs_dir / f"{target_id}.{phase_name}.send.log"
                     llm_out_root = adopted_root
-                    print(f'[agt] Sending reduced AGT to LLM: repo="{repo}" fqcn="{fqcn}"')
+                    print(f'[agt] Sending {phase_name} to LLM: repo="{repo}" fqcn="{fqcn}"')
                     if send_script and send_script.exists():
+                        if mwt_src is None:
+                            print(f'[agt] {phase_name}: Skip (send_script requires manual test): repo="{repo}" fqcn="{fqcn}"')
+                            continue
                         cmd = [
                             "python",
                             str(send_script),
                             "--api-url",
                             args.send_api_url,
                             "--agt_file_path",
-                            str(reduced_src),
+                            str(agt_src),
                             "--mwt_file_path",
-                            str(manual_test_src),
+                            str(mwt_src),
                         ]
                         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                         send_log.write_text(proc.stdout or "", encoding="utf-8", errors="ignore")
                         if proc.returncode != 0:
-                            print(f'[agt] send: FAIL (see {send_log})')
+                            print(f'[agt] {phase_name}: FAIL (see {send_log})')
                     else:
                         out_path = send_reduced_test_to_dir(
-                            agt_file_path=reduced_src,
-                            mwt_file_path=manual_test_src,
+                            agt_file_path=agt_src,
+                            mwt_file_path=mwt_src,
                             api_url=args.send_api_url,
                             out_root=llm_out_root,
                             target_id=target_id,
+                            prompt_type=prompt_type,
+                            output_suffix=output_suffix,
                         )
                         if not out_path:
-                            print(f'[agt] send: FAIL (see {send_log})')
+                            print(f'[agt] {phase_name}: FAIL (see {send_log})')
                     time.sleep(max(0, args.send_sleep_seconds))
+
+        if args.step in ("agent", "all"):
+            if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
+                print(f'[agt] agent: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
+            elif not shutil.which("codex"):
+                print(f'[agt] agent: Skip (missing codex CLI): repo="{repo}" fqcn="{fqcn}"')
+            else:
+                improved_src = improved_test_path(adopted_root, target_id)
+                manual_test_src = first_test_source_for_fqcn(manual_sources or final_sources, manual_test_fqcn)
+                if not improved_src or not improved_src.exists():
+                    print(f'[agt] agent: Skip (missing improved test): repo="{repo}" fqcn="{fqcn}"')
+                elif not manual_test_src or not manual_test_src.exists():
+                    print(f'[agt] agent: Skip (missing manual test source): repo="{repo}" fqcn="{fqcn}"')
+                else:
+                    repo_root = repos_dir / repo_to_dir(repo)
+                    out_path = run_codex_integration(
+                        model=args.agent_model,
+                        improved_test_path=improved_src,
+                        manual_test_path=manual_test_src,
+                        repo_root=repo_root if repo_root.exists() else None,
+                        out_root=adopted_root,
+                        target_id=target_id,
+                        max_context_files=args.agent_max_context_files,
+                        max_context_chars=args.agent_max_context_chars,
+                        max_prompt_chars=args.agent_max_prompt_chars,
+                        log_file=logs_dir / f"{target_id}.agent.log",
+                    )
+                    if not out_path:
+                        print(f'[agt] agent: FAIL (no output): repo="{repo}" fqcn="{fqcn}"')
 
         if args.step in ("compare", "all"):
             if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:

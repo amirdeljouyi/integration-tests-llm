@@ -35,11 +35,15 @@ Priority order (recommended run sequence):
 2) `run`
 3) `filter`  
 4) `reduce`  
-5) `send`  
-6) `compare`  
-7) `adopted-run`
-8) `adopted-filter`  
-9) `adopted-reduce`  
+5) `llm-all`  
+6) `llm-agt-improvement`  
+7) `llm-integration`  
+8) `llm-integration-step-by-step`  
+9) `agent`  
+10) `adopted-filter`  
+11) `adopted-reduce`  
+12) `compare`  
+13) `adopted-run`
 
 Step descriptions:
 
@@ -47,11 +51,15 @@ Step descriptions:
 - `run` - execute generated/manual tests with JaCoCo and write `coverage_summary.csv`.
 - `filter` - run CoverageFilterApp to identify tests with coverage signal (uses fatjar + libs).
 - `reduce` - create reduced generated tests (top-N) based on coverage deltas.
-- `send` - send reduced tests + manual tests to the LLM adapter to produce adopted tests.
-- `compare` - compare adopted vs generated tests (PMD/CPD + tri-compare metrics).
-- `adopted-run` - execute adopted tests with JaCoCo and write `adopted_coverage_summary.csv`.
+- `llm-all` - send reduced tests + manual tests (promptType `integration_all`) to produce adopted tests.
+- `llm-agt-improvement` - send reduced tests only (promptType `integration_improvement`) to produce `_Improved` tests.
+- `llm-integration` - send `_Improved` tests + manual tests (promptType `integration_merge`) to produce adopted tests.
+- `llm-integration-step-by-step` - send `_Improved` tests + manual tests (promptType `integration_step_by_step`) to produce `_Adopted_StepByStep` tests.
+- `agent` - use Codex CLI to integrate `_Improved` tests with manual tests and output adopted tests (defaults to CLI model).
 - `adopted-filter` - run CoverageFilterApp using adopted + manual tests to compute deltas.
 - `adopted-reduce` - reduce adopted tests (default top 5; `--adopted-reduce-max-tests`).
+- `compare` - compare adopted vs generated tests (PMD/CPD + tri-compare metrics).
+- `adopted-run` - execute adopted tests with JaCoCo and write `adopted_coverage_summary.csv`.
 - `all` - run all steps in the priority order above.
 
 ## Inputs
@@ -61,7 +69,9 @@ Step descriptions:
 - `libs/*` for JUnit and runtime deps
 - `coverage-filter-1.0-SNAPSHOT.jar`
 - `jacoco-deps/org.jacoco.agent-run-0.8.14.jar`
-- adopted tests output root (`--adopted-dir`, default `result/llm-out`)
+- adopted tests output root (`--adopted-dir`, default `results/llm-out`)
+- Codex CLI must be installed and logged in for `agent` step
+- Agent prompt guardrails: `--agent-max-prompt-chars` (default 60000)
 
 ## Outputs
 
@@ -80,5 +90,5 @@ Step descriptions:
 
 - The launcher uses `python -m integration_pipeline.pipeline_main` and assumes
   module sources are in `src/`.
-- Coverage summary CSVs are tracked in git; everything else under `jacoco-out/`
+- Coverage summary CSVs are tracked in git; everything else under `tmp/`
   is ignored by default.
