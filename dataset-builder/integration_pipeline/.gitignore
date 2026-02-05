@@ -18,3 +18,4 @@ javac.*.args
 *.log
 # macOS
 .DS_Store
+local.env
