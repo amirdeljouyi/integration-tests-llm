@@ -96,3 +96,4 @@ Step descriptions:
   module sources are in `src/`.
 - Coverage summary CSVs are tracked in git; everything else under `tmp/`
   is ignored by default.
+- Compare metrics documentation: `docs/COMPARE_METRICS.md`.
