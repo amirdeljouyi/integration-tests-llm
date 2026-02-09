@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import re
-import json
-import argparse
-import sys
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple, Optional
 
 try:
@@ -432,6 +429,8 @@ class TriComparator:
             auto_path: str,
             adopted_path: str,
             rep: TriReport,
+            adopted_variant: str = "adopted",
+            include_auto: bool = True,
     ) -> None:
         write_rows_csv(
             csv_path=csv_path,
@@ -440,6 +439,8 @@ class TriComparator:
             auto_path=auto_path,
             adopted_path=adopted_path,
             rep=rep,
+            adopted_variant=adopted_variant,
+            include_auto=include_auto,
         )
 
 
@@ -453,11 +454,13 @@ def write_rows_csv(
     auto_path: str,
     adopted_path: str,
     rep,
+    adopted_variant: str = "adopted",
+    include_auto: bool = True,
 ):
     """
     Writes TWO rows:
       - variant=auto
-      - variant=adopted
+      - variant=<adopted_variant>
     Each row contains metrics vs the same manual file.
     """
     header = [
@@ -521,55 +524,6 @@ def write_rows_csv(
         if f.tell() == 0:
             writer.writerow(header)
 
-        writer.writerow(row_for("auto"))
-        writer.writerow(row_for("adopted"))
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--auto", required=True)
-    ap.add_argument("--adopted", required=True)
-    ap.add_argument("--manual", required=True)
-    ap.add_argument("--group-id", required=True, help="Grouping id for pairing auto/adopted against the same manual test")
-    ap.add_argument("--csv", required=True, help="Output CSV path (appends rows)")
-    ap.add_argument("--lang", default="java", help="Language for CodeBLEU (default: java)")
-    ap.add_argument("--json", action="store_true")
-    args = ap.parse_args()
-
-    rep = tri_compare(args.auto, args.adopted, args.manual, lang=args.lang)
-
-    if args.json:
-        print(json.dumps(asdict(rep), indent=2))
-        return
-
-    if args.csv:
-        write_rows_csv(
-            csv_path=args.csv,
-            group_id=args.group_id,
-            manual_path=args.manual,
-            auto_path=args.auto,
-            adopted_path=args.adopted,
-            rep=rep,
-        )
-        print(f"✅ Appended 2 rows (auto/adopted) to {args.csv}")
-
-    print("\nCloseness to manual (higher = closer):")
-    print(f"  auto    closeness={rep.closeness_score_auto:.3f}  CodeBLEU={rep.codebleu_auto_vs_manual}")
-    print(f"          sim={rep.auto_vs_manual}")
-    print(f"  adopted closeness={rep.closeness_score_adopted:.3f}  CodeBLEU={rep.codebleu_adopted_vs_manual}")
-    print(f"          sim={rep.adopted_vs_manual}")
-    print(f"  winner (overall closeness): {rep.closer_to_manual_overall}")
-
-    print("\nStyle distance to manual (lower = closer):")
-    print(f"  auto    dist={rep.style_distance_auto_to_manual:.3f}")
-    print(f"  adopted dist={rep.style_distance_adopted_to_manual:.3f}")
-    print(f"  winner (style): {rep.closer_to_manual_by_style}")
-
-    print("\nQuality proxies (lower complexity/size tends to be more readable):")
-    print(f"  auto    cyclo_avg={rep.quality_auto.cyclomatic_avg:.2f}, avg_method_loc={rep.quality_auto.avg_method_loc:.1f}, loc={rep.quality_auto.loc}")
-    print(f"  adopted cyclo_avg={rep.quality_adopted.cyclomatic_avg:.2f}, avg_method_loc={rep.quality_adopted.avg_method_loc:.1f}, loc={rep.quality_adopted.loc}")
-
-    print("")
-
-
-if __name__ == "__main__":
-    main()
+        if include_auto:
+            writer.writerow(row_for("auto"))
+        writer.writerow(row_for(adopted_variant))
