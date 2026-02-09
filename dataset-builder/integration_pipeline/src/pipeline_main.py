@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import shutil
-import fnmatch
 import subprocess
 import time
 from pathlib import Path
@@ -20,6 +20,7 @@ from .pipeline_common import (
     split_list_field,
     is_probably_test_filename,
 )
+from .pipeline_comment import comment_compile_errors
 from .pipeline_compile import compile_test_set_smart
 from .pipeline_run import run_one_test_with_jacoco, get_coverage_stats
 from .pipeline_covfilter import run_covfilter_app, run_generate_reduced_app
@@ -167,6 +168,36 @@ def improved_test_path(adopted_root: Path, target_id: str) -> Optional[Path]:
     return matches[0] if matches else None
 
 
+def agentic_test_path(adopted_root: Path, target_id: str) -> Optional[Path]:
+    base = adopted_root / target_id
+    if not base.exists():
+        return None
+    matches = list(base.rglob("*_Adopted_Agentic.java"))
+    return matches[0] if matches else None
+
+
+def adopted_variants(adopted_root: Path, target_id: str) -> List[Tuple[str, Path]]:
+    variants: List[Tuple[str, Path]] = []
+    adopted_src = adopted_test_path(adopted_root, target_id)
+    if adopted_src and adopted_src.exists():
+        variants.append(("adopted", adopted_src))
+    agentic_src = agentic_test_path(adopted_root, target_id)
+    if agentic_src and agentic_src.exists():
+        variants.append(("agentic", agentic_src))
+    return variants
+
+
+def adopted_variants(adopted_root: Path, target_id: str) -> List[Tuple[str, Path]]:
+    variants: List[Tuple[str, Path]] = []
+    adopted_src = adopted_test_path(adopted_root, target_id)
+    if adopted_src and adopted_src.exists():
+        variants.append(("adopted", adopted_src))
+    agentic_src = agentic_test_path(adopted_root, target_id)
+    if agentic_src and agentic_src.exists():
+        variants.append(("agentic", agentic_src))
+    return variants
+
+
 def libs_dir_from_glob(libs_glob_cp: str) -> Path:
     """
     CoverageFilterApp wants a libs DIRECTORY arg (e.g., 'libs'), not 'libs/*'.
@@ -180,6 +211,7 @@ def libs_dir_from_glob(libs_glob_cp: str) -> Path:
         return Path(s.rstrip("*").rstrip("/"))
     # if it's a direct dir or classpath string, fall back to 'libs'
     return Path("libs")
+
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -217,6 +249,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "agent",
             "compare",
             "run",
+            "adopted-comment",
             "adopted-filter",
             "adopted-reduce",
             "adopted-run",
@@ -247,7 +280,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--agent-max-context-files", type=int, default=12, help="Max repo context files to include in agent prompt.")
     ap.add_argument("--agent-max-context-chars", type=int, default=40_000, help="Max total repo context characters for agent prompt.")
     ap.add_argument("--agent-max-prompt-chars", type=int, default=60_000, help="Max total prompt characters for agent request.")
-    ap.add_argument("--compare-root", type=str, default="integration_pipeline/comparison", help="Path to comparison folder (contains tools/ and configs/).")
+    ap.add_argument("--compare-root", type=str, default="src/comparison", help="Path to comparison folder (contains tools/ and configs/).")
     ap.add_argument("--compare-out", type=str, default="results/compare", help="Output dir for AGT vs adopted comparison CSVs.")
     ap.add_argument("--compare-min-tokens", type=int, default=50, help="CPD minimum tokens.")
 
@@ -388,6 +421,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
         "adopted-filter",
         "adopted-reduce",
         "adopted-run",
+        "adopted-comment",
     ):
         summary_path = Path(args.coverage_summary) if args.coverage_summary else summary_csv
         if summary_path.exists():
@@ -536,6 +570,28 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
         manual_test_fqcn = first_test_fqcn_from_sources(manual_sources or final_sources, prefer_estest=False)
         generated_test_fqcn = first_test_fqcn_from_sources(final_sources, prefer_estest=True)
 
+        if args.step in ("adopted-comment", "all"):
+            variants = adopted_variants(adopted_root, target_id)
+            if not variants:
+                print(f'[agt] adopted-comment: Skip (missing adopted tests): repo="{repo}" fqcn="{fqcn}"')
+            else:
+                for variant, adopted_src in variants:
+                    if not adopted_src.exists():
+                        print(f'[agt] adopted-comment: Skip (missing {variant} source): repo="{repo}" fqcn="{fqcn}"')
+                        continue
+                    comment_build = build_dir / "adopted-comment-classes" / variant / target_id
+                    comment_log = logs_dir / f"{target_id}.adopted.{variant}.comment.log"
+                    print(f'[agt] Commenting compile errors ({variant}): repo="{repo}" fqcn="{fqcn}"')
+                    ok = comment_compile_errors(
+                        test_file=adopted_src,
+                        build_dir=comment_build,
+                        log_file=comment_log,
+                        libs_glob_cp=args.libs_cp,
+                        sut_jar=sut_jar,
+                    )
+                    if not ok:
+                        print(f'[agt] adopted-comment: FAIL (see {comment_log}) repo="{repo}" fqcn="{fqcn}" variant="{variant}"')
+
         if do_covfilter and args.step in ("filter", "all"):
             if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
                 print(f'[agt] covfilter: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
@@ -578,42 +634,45 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
             elif covfilter_jar is None or not covfilter_jar.exists():
                 print(f'[agt] adopted-covfilter: Skip (missing --covfilter-jar): repo="{repo}" fqcn="{fqcn}"')
             else:
-                adopted_src = adopted_test_path(adopted_root, target_id)
-                if not adopted_src or not adopted_src.exists():
-                    print(f'[agt] adopted-covfilter: Skip (missing adopted test): repo="{repo}" fqcn="{fqcn}"')
-                elif not manual_sources:
+                if not manual_sources:
                     print(f'[agt] adopted-covfilter: Skip (missing manual test source): repo="{repo}" fqcn="{fqcn}"')
                 else:
-                    adopted_test_fqcn = test_fqcn_from_source(adopted_src)
-                    if not adopted_test_fqcn or not manual_test_fqcn:
-                        print(f'[agt] adopted-covfilter: Skip (cannot parse test fqcn): repo="{repo}" fqcn="{fqcn}"')
+                    variants = adopted_variants(adopted_root, target_id)
+                    if not variants:
+                        print(f'[agt] adopted-covfilter: Skip (missing adopted tests): repo="{repo}" fqcn="{fqcn}"')
                     else:
-                        if sut_classes_dir is not None and sut_classes_dir.exists():
-                            cov_classes_dir = sut_classes_dir
-                        else:
-                            cov_classes_dir = sut_jar
+                        for variant, adopted_src in variants:
+                            adopted_test_fqcn = test_fqcn_from_source(adopted_src)
+                            if not adopted_test_fqcn or not manual_test_fqcn:
+                                print(f'[agt] adopted-covfilter: Skip (cannot parse test fqcn): repo="{repo}" fqcn="{fqcn}" variant="{variant}"')
+                                continue
+                            if sut_classes_dir is not None and sut_classes_dir.exists():
+                                cov_classes_dir = sut_classes_dir
+                            else:
+                                cov_classes_dir = sut_jar
 
-                        adopted_build = build_dir / "adopted-filter-classes" / target_id
-                        ensure_dir(adopted_build)
-                        adopt_compile_log = logs_dir / f"{target_id}.adopted.covfilter.compile.log"
-                        ok_adopt, adopt_tail, _ = compile_test_set_smart(
-                            java_files=manual_sources + [adopted_src],
-                            build_dir=adopted_build,
-                            libs_glob_cp=args.libs_cp,
-                            sut_jar=sut_jar,
-                            log_file=adopt_compile_log,
-                            repo_root_for_deps=repo_root_for_deps,
-                            max_rounds=args.dep_rounds,
-                        )
-                        if not ok_adopt:
-                            print(f'[agt] adopted-covfilter: Skip (compile failed): repo="{repo}" fqcn="{fqcn}" (see {adopt_compile_log})')
-                            print("[agt][ADOPTED-COMPILE-TAIL]\n" + adopt_tail)
-                        else:
-                            cov_out = adopted_covfilter_out_root / target_id
-                            cov_log = logs_dir / f"{target_id}.adopted.covfilter.log"
+                            adopted_build = build_dir / "adopted-filter-classes" / variant / target_id
+                            ensure_dir(adopted_build)
+                            adopt_compile_log = logs_dir / f"{target_id}.adopted.{variant}.covfilter.compile.log"
+                            ok_adopt, adopt_tail, _ = compile_test_set_smart(
+                                java_files=manual_sources + [adopted_src],
+                                build_dir=adopted_build,
+                                libs_glob_cp=args.libs_cp,
+                                sut_jar=sut_jar,
+                                log_file=adopt_compile_log,
+                                repo_root_for_deps=repo_root_for_deps,
+                                max_rounds=args.dep_rounds,
+                            )
+                            if not ok_adopt:
+                                print(f'[agt] adopted-covfilter: Skip (compile failed): repo="{repo}" fqcn="{fqcn}" variant="{variant}" (see {adopt_compile_log})')
+                                print("[agt][ADOPTED-COMPILE-TAIL]\n" + adopt_tail)
+                                continue
+
+                            cov_out = adopted_covfilter_out_root / variant / target_id
+                            cov_log = logs_dir / f"{target_id}.adopted.{variant}.covfilter.log"
                             libs_dir_arg = libs_dir_from_glob(args.libs_cp)
 
-                            print(f'[agt] Running adopted covfilter: repo="{repo}" fqcn="{fqcn}"')
+                            print(f'[agt] Running adopted covfilter ({variant}): repo="{repo}" fqcn="{fqcn}"')
                             ok_cov, cov_tail = run_covfilter_app(
                                 coverage_filter_jar=covfilter_jar,
                                 libs_glob_cp=args.libs_cp,
@@ -662,33 +721,36 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     print("[agt][REDUCE-TAIL]\n" + red_tail)
 
         if args.step in ("adopted-reduce", "all"):
-            test_deltas_csv = adopted_covfilter_out_root / target_id / "test_deltas_all.csv"
-            adopted_src = adopted_test_path(adopted_root, target_id)
             if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
                 print(f'[agt] adopted-reduce: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
             elif covfilter_jar is None or not covfilter_jar.exists():
                 print(f'[agt] adopted-reduce: Skip (missing --covfilter-jar): repo="{repo}" fqcn="{fqcn}"')
-            elif not adopted_src or not adopted_src.exists():
-                print(f'[agt] adopted-reduce: Skip (missing adopted test source): repo="{repo}" fqcn="{fqcn}"')
-            elif not test_deltas_csv.exists():
-                print(f'[agt] adopted-reduce: Skip (missing test_deltas_all.csv): repo="{repo}" fqcn="{fqcn}"')
             else:
-                reduced_out = adopted_reduced_out_root / target_id
-                reduced_log = logs_dir / f"{target_id}.adopted.reduce.log"
-                top_n = max(1, min(args.adopted_reduce_max_tests, 100))
-                print(f'[agt] Reducing adopted tests (top {top_n}): repo="{repo}" fqcn="{fqcn}"')
-                ok_red, red_tail = run_generate_reduced_app(
-                    coverage_filter_jar=covfilter_jar,
-                    libs_glob_cp=args.libs_cp,
-                    original_test_java=adopted_src,
-                    test_deltas_csv=test_deltas_csv,
-                    top_n=top_n,
-                    out_dir=reduced_out,
-                    log_file=reduced_log,
-                )
-                if not ok_red:
-                    print(f'[agt] adopted-reduce: FAIL (see {reduced_log})')
-                    print("[agt][ADOPTED-REDUCE-TAIL]\n" + red_tail)
+                variants = adopted_variants(adopted_root, target_id)
+                if not variants:
+                    print(f'[agt] adopted-reduce: Skip (missing adopted tests): repo="{repo}" fqcn="{fqcn}"')
+                else:
+                    for variant, adopted_src in variants:
+                        test_deltas_csv = adopted_covfilter_out_root / variant / target_id / "test_deltas_all.csv"
+                        if not test_deltas_csv.exists():
+                            print(f'[agt] adopted-reduce: Skip (missing test_deltas_all.csv): repo="{repo}" fqcn="{fqcn}" variant="{variant}"')
+                            continue
+                        reduced_out = adopted_reduced_out_root / variant / target_id
+                        reduced_log = logs_dir / f"{target_id}.adopted.{variant}.reduce.log"
+                        top_n = max(1, min(args.adopted_reduce_max_tests, 100))
+                        print(f'[agt] Reducing adopted tests ({variant}, top {top_n}): repo="{repo}" fqcn="{fqcn}"')
+                        ok_red, red_tail = run_generate_reduced_app(
+                            coverage_filter_jar=covfilter_jar,
+                            libs_glob_cp=args.libs_cp,
+                            original_test_java=adopted_src,
+                            test_deltas_csv=test_deltas_csv,
+                            top_n=top_n,
+                            out_dir=reduced_out,
+                            log_file=reduced_log,
+                        )
+                        if not ok_red:
+                            print(f'[agt] adopted-reduce: FAIL (see {reduced_log})')
+                            print("[agt][ADOPTED-REDUCE-TAIL]\n" + red_tail)
 
         if args.step in ("send", "llm-all", "llm-agt-improvement", "llm-integration", "llm-integration-step-by-step", "all"):
             send_script = Path(args.send_script) if args.send_script else None
@@ -798,45 +860,53 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                 top_n = max(1, min(args.reduce_max_tests, 100))
                 generated_test_src = first_test_source_for_fqcn(final_sources, generated_test_fqcn)
                 reduced_src = reduced_test_path(reduced_root, target_id, generated_test_src, top_n) if generated_test_src else None
-                adopted_src = adopted_test_path(adopted_root, target_id)
                 manual_test_src = first_test_source_for_fqcn(final_sources, manual_test_fqcn)
+                variants = adopted_variants(adopted_root, target_id)
+
                 if not reduced_src or not reduced_src.exists():
                     print(f'[agt] compare: Skip (missing reduced AGT test): repo="{repo}" fqcn="{fqcn}"')
-                elif not adopted_src or not adopted_src.exists():
-                    print(f'[agt] compare: Skip (missing adopted test): repo="{repo}" fqcn="{fqcn}"')
                 elif not manual_test_src or not manual_test_src.exists():
                     print(f'[agt] compare: Skip (missing manual test source): repo="{repo}" fqcn="{fqcn}"')
+                elif not variants:
+                    print(f'[agt] compare: Skip (missing adopted tests): repo="{repo}" fqcn="{fqcn}"')
                 else:
                     compare_root = Path(args.compare_root)
-                    compare_out = Path(args.compare_out) / f"{target_id}.csv"
-                    try:
-                        compare_tests(
-                            comparison_root=compare_root,
-                            agt_file=reduced_src,
-                            adopted_file=adopted_src,
-                            out_csv=compare_out,
-                            minimum_tokens=args.compare_min_tokens,
-                        )
-                    except Exception as e:
-                        print(f'[agt] compare: FAIL ({e}) repo="{repo}" fqcn="{fqcn}"')
-                    tri_script = Path("integration_pipeline/comparison/tri_compare_tests.py")
+                    tri_script = Path("src/comparison/tri_compare_tests.py")
                     tri_csv = Path("results/compare/tri_compare.csv")
-                    tri_log = logs_dir / f"{target_id}.tri_compare.log"
-                    try:
-                        run_tri_compare_with_log(
-                            tri_script=tri_script,
-                            group_id=target_id,
-                            auto_path=reduced_src,
-                            adopted_path=adopted_src,
-                            manual_path=manual_test_src,
-                            out_csv=tri_csv,
-                            log_path=tri_log,
-                        )
-                        print(f'[agt] compare: tri_compare appended to {tri_csv}')
-                    except ModuleNotFoundError as e:
-                        print(f'[agt] compare: Skip (tri_compare missing dep: {e.name}) repo="{repo}" fqcn="{fqcn}"')
-                    except Exception as e:
-                        print(f'[agt] compare: FAIL (tri_compare: {e}) repo="{repo}" fqcn="{fqcn}" (see {tri_log})')
+
+                    for idx, (variant, adopted_src) in enumerate(variants):
+                        if not adopted_src.exists():
+                            print(f'[agt] compare: Skip (missing {variant} test): repo="{repo}" fqcn="{fqcn}"')
+                            continue
+                        compare_out = Path(args.compare_out) / f"{target_id}.{variant}.csv"
+                        try:
+                            compare_tests(
+                                comparison_root=compare_root,
+                                agt_file=reduced_src,
+                                adopted_file=adopted_src,
+                                out_csv=compare_out,
+                                minimum_tokens=args.compare_min_tokens,
+                            )
+                        except Exception as e:
+                            print(f'[agt] compare: FAIL ({e}) repo="{repo}" fqcn="{fqcn}" variant="{variant}"')
+                        tri_log = logs_dir / f"{target_id}.tri_compare.{variant}.log"
+                        try:
+                            run_tri_compare_with_log(
+                                tri_script=tri_script,
+                                group_id=f"{target_id}.{variant}",
+                                auto_path=reduced_src,
+                                adopted_path=adopted_src,
+                                manual_path=manual_test_src,
+                                out_csv=tri_csv,
+                                log_path=tri_log,
+                                adopted_variant=variant,
+                                include_auto=idx == 0,
+                            )
+                            print(f'[agt] compare: tri_compare appended to {tri_csv} ({variant})')
+                        except ModuleNotFoundError as e:
+                            print(f'[agt] compare: Skip (tri_compare missing dep: {e.name}) repo="{repo}" fqcn="{fqcn}" variant="{variant}"')
+                        except Exception as e:
+                            print(f'[agt] compare: FAIL (tri_compare: {e}) repo="{repo}" fqcn="{fqcn}" variant="{variant}" (see {tri_log})')
 
         # -------- Run compiled tests normally --------
         if args.step in ("run", "all"):
