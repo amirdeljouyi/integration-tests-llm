@@ -891,11 +891,11 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                     tri_script = Path("src/comparison/tri_compare_tests.py")
                     tri_csv = Path("results/compare/tri_compare.csv")
 
+                    compare_out = Path(args.compare_out) / "compare.csv"
                     for idx, (variant, adopted_src) in enumerate(variants):
                         if not adopted_src.exists():
                             print(f'[agt] compare: Skip (missing {variant} test): repo="{repo}" fqcn="{fqcn}"')
                             continue
-                        compare_out = Path(args.compare_out) / f"{target_id}.{variant}.csv"
                         try:
                             compare_tests(
                                 comparison_root=compare_root,
@@ -903,6 +903,10 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                                 adopted_file=adopted_src,
                                 out_csv=compare_out,
                                 minimum_tokens=args.compare_min_tokens,
+                                candidate_variant=variant,
+                                include_auto=idx == 0,
+                                repo=repo,
+                                fqcn=fqcn,
                             )
                         except Exception as e:
                             print(f'[agt] compare: FAIL ({e}) repo="{repo}" fqcn="{fqcn}" variant="{variant}"')

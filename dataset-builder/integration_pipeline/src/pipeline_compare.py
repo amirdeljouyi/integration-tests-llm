@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -7,7 +8,7 @@ from dataclasses import dataclass
 import importlib.util
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import traceback
 
 
@@ -88,7 +89,13 @@ class CompareRunner:
         if not self.ruleset.exists():
             raise FileNotFoundError(f"PMD ruleset not found: {self.ruleset}")
 
-    def compare(self, agt_file: Path, adopted_file: Path, out_csv: Path, *, minimum_tokens: int = 50) -> None:
+    def compare_metrics(
+        self,
+        agt_file: Path,
+        adopted_file: Path,
+        *,
+        minimum_tokens: int = 50,
+    ) -> Tuple[PMDResult, PMDResult, CPDResult]:
         self._validate()
         pmd_agt = run_pmd(self.pmd_bin, self.ruleset, agt_file)
         pmd_adopted = run_pmd(self.pmd_bin, self.ruleset, adopted_file)
@@ -99,12 +106,7 @@ class CompareRunner:
             (tmp_dir / adopted_file.name).write_text(adopted_file.read_text(encoding="utf-8", errors="ignore"), encoding="utf-8")
             cpd = run_cpd(self.pmd_bin, tmp_dir, minimum_tokens=minimum_tokens)
 
-        out_csv.parent.mkdir(parents=True, exist_ok=True)
-        out_csv.write_text(
-            "agt_pmd_violations,adopted_pmd_violations,cpd_duplicate_blocks,cpd_duplicate_lines_total\n"
-            f"{pmd_agt.violations},{pmd_adopted.violations},{cpd.duplicate_blocks},{cpd.duplicate_lines_total}\n",
-            encoding="utf-8",
-        )
+        return pmd_agt, pmd_adopted, cpd
 
     @staticmethod
     def run_tri_compare(
@@ -178,13 +180,75 @@ def compare_tests(
         adopted_file: Path,
         out_csv: Path,
         minimum_tokens: int = 50,
+        candidate_variant: str = "adopted",
+        include_auto: bool = True,
+        repo: str = "",
+        fqcn: str = "",
 ) -> None:
-    CompareRunner(comparison_root).compare(
+    runner = CompareRunner(comparison_root)
+    pmd_agt, pmd_adopted, cpd = runner.compare_metrics(
         agt_file,
         adopted_file,
-        out_csv,
         minimum_tokens=minimum_tokens,
     )
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    write_compare_row(
+        out_csv=out_csv,
+        variant="auto" if include_auto else None,
+        repo=repo,
+        fqcn=fqcn,
+        auto_pmd=pmd_agt.violations,
+        candidate_pmd=None,
+        cpd=None,
+    )
+    write_compare_row(
+        out_csv=out_csv,
+        variant=candidate_variant,
+        repo=repo,
+        fqcn=fqcn,
+        auto_pmd=pmd_agt.violations,
+        candidate_pmd=pmd_adopted.violations,
+        cpd=cpd,
+    )
+
+
+def write_compare_row(
+    *,
+    out_csv: Path,
+    variant: str | None,
+    repo: str,
+    fqcn: str,
+    auto_pmd: int,
+    candidate_pmd: Optional[int],
+    cpd: Optional[CPDResult],
+) -> None:
+    if variant is None:
+        return
+    header = [
+        "repo",
+        "fqcn",
+        "variant",
+        "auto_pmd_violations",
+        "candidate_pmd_violations",
+        "cpd_duplicate_blocks",
+        "cpd_duplicate_lines_total",
+    ]
+    rows = [
+        [
+            repo,
+            fqcn,
+            variant,
+            auto_pmd,
+            "" if candidate_pmd is None else candidate_pmd,
+            "" if cpd is None else cpd.duplicate_blocks,
+            "" if cpd is None else cpd.duplicate_lines_total,
+        ]
+    ]
+    with out_csv.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if f.tell() == 0:
+            writer.writerow(header)
+        writer.writerows(rows)
 
 
 def run_tri_compare(
