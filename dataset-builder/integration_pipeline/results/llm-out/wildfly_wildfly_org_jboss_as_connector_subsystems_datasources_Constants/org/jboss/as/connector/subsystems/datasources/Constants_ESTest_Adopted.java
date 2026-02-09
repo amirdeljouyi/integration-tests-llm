@@ -1,9 +1,8 @@
 package org.jboss.as.connector.subsystems.datasources;
 
-import Constants_ESTest_scaffolding;
 import org.junit.Test;
 
-public class Constants_ESTest_Adopted extends Constants_ESTest_scaffolding {
+public class Constants_ESTest_Adopted {
 
     @Test(timeout = 4000)
     public void shouldInstantiateConstantsWithoutException() throws Throwable {

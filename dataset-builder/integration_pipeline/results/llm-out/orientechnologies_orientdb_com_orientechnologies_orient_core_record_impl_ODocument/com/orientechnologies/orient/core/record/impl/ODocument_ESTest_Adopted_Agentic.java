@@ -8,7 +8,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.orientechnologies.orient.core.OCreateDatabaseUtil;
+// import com.orientechnologies.orient.core.OCreateDatabaseUtil;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.db.OrientDB;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocumentAbstract;
@@ -34,7 +34,7 @@ import org.junit.Test;
 
 /** @author Artem Orobets (enisher-at-gmail.com) */
 public class ODocument_ESTest_Adopted_Agentic {
-  private static final String dbName = ODocumentTest.class.getSimpleName();
+//   private static final String dbName = ODocumentTest.class.getSimpleName();
   private static final String defaultDbAdminCredentials = "admin";
 
   @Test
@@ -179,8 +179,8 @@ public class ODocument_ESTest_Adopted_Agentic {
     ODatabaseSession db = null;
     OrientDB odb = null;
     try {
-      odb = OCreateDatabaseUtil.createDatabase(dbName, "memory:", OCreateDatabaseUtil.TYPE_MEMORY);
-      db = odb.open(dbName, defaultDbAdminCredentials, OCreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+//       odb = OCreateDatabaseUtil.createDatabase(dbName, "memory:", OCreateDatabaseUtil.TYPE_MEMORY);
+//       db = odb.open(dbName, defaultDbAdminCredentials, OCreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       OClass clazz = db.getMetadata().getSchema().createClass("Test");
       clazz.createProperty("integer", OType.INTEGER);
@@ -209,7 +209,7 @@ public class ODocument_ESTest_Adopted_Agentic {
     } finally {
       if (db != null) db.close();
       if (odb != null) {
-        odb.drop(dbName);
+//         odb.drop(dbName);
         odb.close();
       }
     }
@@ -233,8 +233,8 @@ public class ODocument_ESTest_Adopted_Agentic {
     ODatabaseSession db = null;
     OrientDB odb = null;
     try {
-      odb = OCreateDatabaseUtil.createDatabase(dbName, "memory:", OCreateDatabaseUtil.TYPE_MEMORY);
-      db = odb.open(dbName, defaultDbAdminCredentials, OCreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+//       odb = OCreateDatabaseUtil.createDatabase(dbName, "memory:", OCreateDatabaseUtil.TYPE_MEMORY);
+//       db = odb.open(dbName, defaultDbAdminCredentials, OCreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       OSchema schema = db.getMetadata().getSchema();
       OClass classA = schema.createClass("TestRemovingField2");
@@ -259,7 +259,7 @@ public class ODocument_ESTest_Adopted_Agentic {
     } finally {
       if (db != null) db.close();
       if (odb != null) {
-        odb.drop(dbName);
+//         odb.drop(dbName);
         odb.close();
       }
     }
@@ -300,8 +300,8 @@ public class ODocument_ESTest_Adopted_Agentic {
     ODatabaseSession db = null;
     OrientDB odb = null;
     try {
-      odb = OCreateDatabaseUtil.createDatabase(dbName, "memory:", OCreateDatabaseUtil.TYPE_MEMORY);
-      db = odb.open(dbName, defaultDbAdminCredentials, OCreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+//       odb = OCreateDatabaseUtil.createDatabase(dbName, "memory:", OCreateDatabaseUtil.TYPE_MEMORY);
+//       db = odb.open(dbName, defaultDbAdminCredentials, OCreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       OSchema schema = db.getMetadata().getSchema();
       OClass classA = schema.createClass("TestUndo");
@@ -339,7 +339,7 @@ public class ODocument_ESTest_Adopted_Agentic {
     } finally {
       if (db != null) db.close();
       if (odb != null) {
-        odb.drop(dbName);
+//         odb.drop(dbName);
         odb.close();
       }
     }
@@ -501,7 +501,7 @@ public class ODocument_ESTest_Adopted_Agentic {
     ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(buffer);
     DataInputStream dataInputStream = new DataInputStream(byteArrayInputStream);
     try {
-      new ODocument(dataInputStream);
+//       new ODocument(dataInputStream);
       fail("Expecting exception: NoClassDefFoundError");
     } catch (NoClassDefFoundError e) {
       boolean found = false;

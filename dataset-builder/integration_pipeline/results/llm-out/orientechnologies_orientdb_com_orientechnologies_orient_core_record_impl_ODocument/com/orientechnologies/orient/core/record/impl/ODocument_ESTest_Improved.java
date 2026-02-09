@@ -1,5 +1,4 @@
 package com.orientechnologies.orient.core.record.impl;
-import ODocument_ESTest_scaffolding;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.metadata.schema.OClass;
@@ -13,7 +12,7 @@ import java.util.TreeMap;
 import org.junit.Test;
 import static org.evosuite.runtime.EvoAssertions.verifyException;
 import static org.junit.Assert.fail;
-public class ODocument_ESTest_Improved extends ODocument_ESTest_scaffolding {
+public class ODocument_ESTest_Improved {
     @Test(timeout = 4000)
     public void createDocumentFromClassNameString_throwsNoClassDefFoundError() throws Throwable {
         ODocument document = null;

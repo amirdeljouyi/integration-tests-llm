@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit;
 
 class FileConfiguration_ESTest_Adopted_Agentic {
 
-    Logger logger = LoggerFactory.getLogger(FileConfigurationTest.class);
+//     Logger logger = LoggerFactory.getLogger(FileConfigurationTest.class);
 
     @BeforeAll
     static void setUp() {
@@ -45,37 +45,37 @@ class FileConfiguration_ESTest_Adopted_Agentic {
 
     @Test
     void addConfigListener() throws InterruptedException {
-        logger.info("addConfigListener");
+//         logger.info("addConfigListener");
         ConfigurationFactory.reload();
         Configuration fileConfig = ConfigurationFactory.getInstance();
         CountDownLatch countDownLatch = new CountDownLatch(1);
         String dataId = "service.disableGlobalTransaction";
         boolean value = fileConfig.getBoolean(dataId);
         fileConfig.addConfigListener(dataId, (CachedConfigurationChangeListener) event -> {
-            logger.info(
-                    "before dataId: {}, oldValue: {}, newValue: {}",
-                    event.getDataId(),
-                    event.getOldValue(),
-                    event.getNewValue());
+//             logger.info(
+//                     "before dataId: {}, oldValue: {}, newValue: {}",
+//                     event.getDataId(),
+//                     event.getOldValue(),
+//                     event.getNewValue());
             Assertions.assertEquals(
                     Boolean.parseBoolean(event.getNewValue()), !Boolean.parseBoolean(event.getOldValue()));
-            logger.info(
-                    "after dataId: {}, oldValue: {}, newValue: {}",
-                    event.getDataId(),
-                    event.getOldValue(),
-                    event.getNewValue());
+//             logger.info(
+//                     "after dataId: {}, oldValue: {}, newValue: {}",
+//                     event.getDataId(),
+//                     event.getOldValue(),
+//                     event.getNewValue());
             countDownLatch.countDown();
         });
         System.setProperty(dataId, String.valueOf(!value));
-        logger.info(System.currentTimeMillis() + ", dataId: {}, oldValue: {}", dataId, value);
+//         logger.info(System.currentTimeMillis() + ", dataId: {}, oldValue: {}", dataId, value);
         // reduce wait time to avoid test timeout
         boolean timeout = countDownLatch.await(5, TimeUnit.SECONDS);
         if (!timeout) {
-            logger.warn("Timeout waiting for configuration change, skipping assertion");
+//             logger.warn("Timeout waiting for configuration change, skipping assertion");
             return;
         }
-        logger.info(
-                System.currentTimeMillis() + ", dataId: {}, currenValue: {}", dataId, fileConfig.getBoolean(dataId));
+//         logger.info(
+//                 System.currentTimeMillis() + ", dataId: {}, currenValue: {}", dataId, fileConfig.getBoolean(dataId));
         Assertions.assertNotEquals(fileConfig.getBoolean(dataId), value);
         // wait for loop safety, loop time is LISTENER_CONFIG_INTERVAL=1s
         CountDownLatch countDownLatch2 = new CountDownLatch(1);

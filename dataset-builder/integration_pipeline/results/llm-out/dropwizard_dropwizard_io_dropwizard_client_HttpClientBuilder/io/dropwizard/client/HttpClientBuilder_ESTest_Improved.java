@@ -1,5 +1,4 @@
 package io.dropwizard.client;
-import HttpClientBuilder_ESTest_scaffolding;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.NoopMetricRegistry;
 import com.codahale.metrics.httpclient5.HttpClientMetricNameStrategy;
@@ -42,7 +41,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
-public class HttpClientBuilder_ESTest_Improved extends HttpClientBuilder_ESTest_scaffolding {
+public class HttpClientBuilder_ESTest_Improved {
     @Test(timeout = 4000)
     public void buildWithDefaultRequestConfiguration_withArbitraryName_throwsException() throws Throwable {
         NoopMetricRegistry noopMetricRegistry = new NoopMetricRegistry();

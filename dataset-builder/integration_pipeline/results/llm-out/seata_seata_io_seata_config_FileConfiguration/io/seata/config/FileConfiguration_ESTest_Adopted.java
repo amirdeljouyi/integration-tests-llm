@@ -1,5 +1,4 @@
 package io.seata.config;
-import FileConfiguration_ESTest_scaffolding;
 import org.apache.seata.config.CachedConfigurationChangeListener;
 import org.apache.seata.config.Configuration;
 import org.apache.seata.config.ConfigurationCache;
@@ -21,7 +20,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-public class FileConfiguration_ESTest_Adopted extends FileConfiguration_ESTest_scaffolding {
+public class FileConfiguration_ESTest_Adopted {
     @BeforeClass
     public static void setUpIGT() {
         System.setProperty("file.listener.enabled", "true");

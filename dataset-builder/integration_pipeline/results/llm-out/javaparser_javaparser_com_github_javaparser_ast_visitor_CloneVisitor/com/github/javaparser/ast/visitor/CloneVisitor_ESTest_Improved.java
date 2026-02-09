@@ -1,5 +1,4 @@
 package com.github.javaparser.ast.visitor;
-import CloneVisitor_ESTest_scaffolding;
 import com.github.javaparser.JavaToken;
 import com.github.javaparser.TokenRange;
 import com.github.javaparser.ast.ArrayCreationLevel;
@@ -113,7 +112,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-public class CloneVisitor_ESTest_Improved extends CloneVisitor_ESTest_scaffolding {
+public class CloneVisitor_ESTest_Improved {
     @Test(timeout = 4000)
     public void visitWildcardType_withBlockComment_returnsEqualButNotSame() throws Throwable {
         CloneVisitor visitor = new CloneVisitor();

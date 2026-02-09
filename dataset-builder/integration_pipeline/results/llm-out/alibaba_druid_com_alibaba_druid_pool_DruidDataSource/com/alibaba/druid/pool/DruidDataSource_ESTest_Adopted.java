@@ -1,5 +1,4 @@
 package com.alibaba.druid.pool;
-import DruidDataSource_ESTest_scaffolding;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.util.Date;
@@ -15,7 +14,7 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-public class DruidDataSource_ESTest_Adopted extends DruidDataSource_ESTest_scaffolding {
+public class DruidDataSource_ESTest_Adopted {
     @Test(timeout = 4000)
     public void testResolveDriver_withoutUrl_throwsSQLException() throws Throwable {
         DruidDataSource dataSource = new DruidDataSource(false);

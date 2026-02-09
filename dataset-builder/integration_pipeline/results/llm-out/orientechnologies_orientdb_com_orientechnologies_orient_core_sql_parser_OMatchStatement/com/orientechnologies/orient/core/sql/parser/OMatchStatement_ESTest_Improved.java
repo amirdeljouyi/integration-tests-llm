@@ -1,5 +1,4 @@
 package com.orientechnologies.orient.core.sql.parser;
-import OMatchStatement_ESTest_scaffolding;
 import com.orientechnologies.orient.core.command.OCommandContext;
 import com.orientechnologies.orient.core.id.ORecordId;
 import java.util.List;
@@ -16,7 +15,7 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-public class OMatchStatement_ESTest_Improved extends OMatchStatement_ESTest_scaffolding {
+public class OMatchStatement_ESTest_Improved {
     @Test(timeout = 4000)
     public void buildPatterns_doesNotAffectDistinctFlag() throws Throwable {
         OMatchStatement matchStatement = new OMatchStatement(19);

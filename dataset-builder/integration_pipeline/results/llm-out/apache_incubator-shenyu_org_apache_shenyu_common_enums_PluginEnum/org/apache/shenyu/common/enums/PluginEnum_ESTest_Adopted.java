@@ -1,10 +1,9 @@
 package org.apache.shenyu.common.enums;
-import PluginEnum_ESTest_scaffolding;
 import java.util.List;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-public class PluginEnum_ESTest_Adopted extends PluginEnum_ESTest_scaffolding {
+public class PluginEnum_ESTest_Adopted {
     @Test(timeout = 4000)
     public void testValuesReturnsExpectedCount() throws Throwable {
         PluginEnum[] allPluginEnums = PluginEnum.values();

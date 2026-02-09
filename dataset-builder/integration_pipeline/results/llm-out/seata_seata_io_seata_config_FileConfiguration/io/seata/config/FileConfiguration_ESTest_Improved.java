@@ -1,5 +1,4 @@
 package io.seata.config;
-import FileConfiguration_ESTest_scaffolding;
 import org.apache.seata.config.ConfigurationCache;
 import org.apache.seata.config.ConfigurationChangeEvent;
 import org.apache.seata.config.ConfigurationChangeType;
@@ -9,7 +8,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-public class FileConfiguration_ESTest_Improved extends FileConfiguration_ESTest_scaffolding {
+public class FileConfiguration_ESTest_Improved {
     @Test(timeout = 4000)
     public void shouldPutIfAbsentAndRemoveConfigAfterLatestConfigQueries() throws Throwable {
         FileConfiguration fileConfig = new FileConfiguration("");

@@ -1,5 +1,4 @@
 package io.quarkus.qute.deployment;
-import QuteProcessor_ESTest_scaffolding;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.AutoAddScopeBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
@@ -111,7 +110,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
-public class QuteProcessor_ESTest_Improved extends QuteProcessor_ESTest_scaffolding {
+public class QuteProcessor_ESTest_Improved {
     @Test(timeout = 4000)
     public void isEmptyReturnsTrueForNewMatchResult() throws Throwable {
         EmptyIndex emptyIndex = EmptyIndex.INSTANCE;
