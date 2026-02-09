@@ -115,6 +115,8 @@ class CompareRunner:
             adopted_path: Path,
             manual_path: Path,
             out_csv: Path,
+            adopted_variant: str = "adopted",
+            include_auto: bool = True,
     ) -> None:
         if not tri_script.exists():
             raise FileNotFoundError(f"tri_compare_tests.py not found: {tri_script}")
@@ -135,6 +137,8 @@ class CompareRunner:
             auto_path=str(auto_path),
             adopted_path=str(adopted_path),
             rep=rep,
+            adopted_variant=adopted_variant,
+            include_auto=include_auto,
         )
 
 
@@ -147,6 +151,8 @@ def run_tri_compare_with_log(
         manual_path: Path,
         out_csv: Path,
         log_path: Path,
+        adopted_variant: str = "adopted",
+        include_auto: bool = True,
 ) -> None:
     try:
         CompareRunner.run_tri_compare(
@@ -156,6 +162,8 @@ def run_tri_compare_with_log(
             adopted_path=adopted_path,
             manual_path=manual_path,
             out_csv=out_csv,
+            adopted_variant=adopted_variant,
+            include_auto=include_auto,
         )
     except Exception:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -187,6 +195,8 @@ def run_tri_compare(
         adopted_path: Path,
         manual_path: Path,
         out_csv: Path,
+        adopted_variant: str = "adopted",
+        include_auto: bool = True,
 ) -> None:
     CompareRunner.run_tri_compare(
         tri_script=tri_script,
@@ -195,4 +205,6 @@ def run_tri_compare(
         adopted_path=adopted_path,
         manual_path=manual_path,
         out_csv=out_csv,
+        adopted_variant=adopted_variant,
+        include_auto=include_auto,
     )
