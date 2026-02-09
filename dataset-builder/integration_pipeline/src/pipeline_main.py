@@ -249,6 +249,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "agent",
             "compare",
             "run",
+            "adopted-fix",
             "adopted-comment",
             "adopted-filter",
             "adopted-reduce",
@@ -375,6 +376,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
     adopted_covfilter_out_root = Path(args.adopted_covfilter_out)
     adopted_reduced_out_root = Path(args.adopted_reduced_out)
     adopted_root = Path(args.adopted_dir)
+    adopted_fix_script = Path("src/pipeline_fix.py")
 
     # Global coverage report CSV
     summary_csv = out_dir / "coverage_summary.csv"
@@ -422,6 +424,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
         "adopted-reduce",
         "adopted-run",
         "adopted-comment",
+        "adopted-fix",
     ):
         summary_path = Path(args.coverage_summary) if args.coverage_summary else summary_csv
         if summary_path.exists():
@@ -569,6 +572,20 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
         # -------- CoverageFilterApp step (split before run tests) --------
         manual_test_fqcn = first_test_fqcn_from_sources(manual_sources or final_sources, prefer_estest=False)
         generated_test_fqcn = first_test_fqcn_from_sources(final_sources, prefer_estest=True)
+
+        if args.step in ("adopted-fix", "all"):
+            if not adopted_root.exists():
+                print(f'[agt] adopted-fix: Skip (missing adopted dir): {adopted_root}')
+            elif not adopted_fix_script.exists():
+                print(f'[agt] adopted-fix: Skip (missing script): {adopted_fix_script}')
+            else:
+                fix_log = logs_dir / f"{target_id}.adopted.fix.log"
+                cmd = ["python3", str(adopted_fix_script), str(adopted_root)]
+                print(f'[agt] adopted-fix: {target_id}')
+                proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                fix_log.write_text(proc.stdout or "", encoding="utf-8", errors="ignore")
+                if proc.returncode != 0:
+                    print(f'[agt] adopted-fix: FAIL (see {fix_log}) repo="{repo}" fqcn="{fqcn}"')
 
         if args.step in ("adopted-comment", "all"):
             variants = adopted_variants(adopted_root, target_id)

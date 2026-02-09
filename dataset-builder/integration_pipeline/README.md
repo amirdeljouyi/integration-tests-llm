@@ -40,10 +40,12 @@ Priority order (recommended run sequence):
 7) `llm-integration`  
 8) `llm-integration-step-by-step`  
 9) `agent`  
-10) `adopted-filter`  
-11) `adopted-reduce`  
-12) `compare`  
-13) `adopted-run`
+10) `adopted-fix`  
+11) `adopted-comment`  
+12) `adopted-filter`  
+13) `adopted-reduce`  
+14) `compare`  
+15) `adopted-run`
 
 Step descriptions:
 
@@ -56,6 +58,8 @@ Step descriptions:
 - `llm-integration` - send `_Improved` tests + manual tests (promptType `integration_merge`) to produce adopted tests.
 - `llm-integration-step-by-step` - send `_Improved` tests + manual tests (promptType `integration_step_by_step`) to produce `_Adopted_StepByStep` tests.
 - `agent` - use Codex CLI to integrate `_Improved` tests with manual tests and output adopted tests (defaults to CLI model).
+- `adopted-fix` - normalize adopted tests (via `src/pipeline_fix.py`) by removing `_scaffolding` imports/extends and adding `throws Exception` to test methods.
+- `adopted-comment` - iteratively comment compile-error lines in `_Adopted` and `_Adopted_Agentic` tests until they compile.
 - `adopted-filter` - run CoverageFilterApp for `_Adopted` and `_Adopted_Agentic` tests against manual tests.
 - `adopted-reduce` - reduce `_Adopted` and `_Adopted_Agentic` tests (default top 5; `--adopted-reduce-max-tests`).
 - `compare` - compare adopted vs generated tests (PMD/CPD + tri-compare metrics).
