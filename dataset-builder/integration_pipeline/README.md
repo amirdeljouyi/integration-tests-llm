@@ -56,8 +56,8 @@ Step descriptions:
 - `llm-integration` - send `_Improved` tests + manual tests (promptType `integration_merge`) to produce adopted tests.
 - `llm-integration-step-by-step` - send `_Improved` tests + manual tests (promptType `integration_step_by_step`) to produce `_Adopted_StepByStep` tests.
 - `agent` - use Codex CLI to integrate `_Improved` tests with manual tests and output adopted tests (defaults to CLI model).
-- `adopted-filter` - run CoverageFilterApp using adopted + manual tests to compute deltas.
-- `adopted-reduce` - reduce adopted tests (default top 5; `--adopted-reduce-max-tests`).
+- `adopted-filter` - run CoverageFilterApp for `_Adopted` and `_Adopted_Agentic` tests against manual tests.
+- `adopted-reduce` - reduce `_Adopted` and `_Adopted_Agentic` tests (default top 5; `--adopted-reduce-max-tests`).
 - `compare` - compare adopted vs generated tests (PMD/CPD + tri-compare metrics).
 - `adopted-run` - execute adopted tests with JaCoCo and write `adopted_coverage_summary.csv`.
 - `all` - run all steps in the priority order above.
@@ -82,8 +82,8 @@ Step descriptions:
 - `result/` intermediate artifacts (covfilter/reduced/compare)
   - `result/covfilter/` (generated covfilter outputs)
   - `result/reduced-agt/` (reduced generated tests)
-  - `result/covfilter-adopted/` (adopted covfilter outputs)
-  - `result/reduced-adopted/` (reduced adopted tests)
+- `result/covfilter-adopted/` (adopted covfilter outputs)
+- `result/reduced-adopted/` (reduced adopted tests)
   - `result/compare/` (comparison CSVs)
 
 ## Notes
