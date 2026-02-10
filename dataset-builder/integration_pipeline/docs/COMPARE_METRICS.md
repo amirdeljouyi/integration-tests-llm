@@ -42,5 +42,5 @@ This doc describes the metrics produced by the `compare` step in the integration
 
 ## Notes
 
-- PMD and CPD run via `src/comparison/tools/pmd/...`.
+- PMD and CPD run via `src/metrics/tools/pmd/...`.
 - Tri-compare uses token similarity, CodeBLEU (if available), and style proxies against the manual test.
