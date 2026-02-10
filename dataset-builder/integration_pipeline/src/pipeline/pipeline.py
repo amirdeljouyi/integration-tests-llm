@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 
-from ..core.common import looks_like_scaffolding, repo_to_dir, split_list_field
+from ..core.common import looks_like_scaffolding, repo_to_dir, split_list_field, ensure_dir
 from .config import PipelineArgs, PipelineConfig, build_pipeline_config
 from .helpers import expand_manual_sources, find_tests_in_bucket, first_test_fqcn_from_sources
 from ..steps import (
