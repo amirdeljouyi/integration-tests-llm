@@ -21,6 +21,8 @@ from .pipeline_common import (
     is_probably_test_filename,
 )
 from .pipeline_comment import comment_compile_errors
+from .pipeline_coverage import write_coverage_row
+from .pipeline_pr_maker import write_pr_draft
 from .pipeline_compile import compile_test_set_smart
 from .pipeline_run import run_one_test_with_jacoco, get_coverage_stats
 from .pipeline_covfilter import run_covfilter_app, run_generate_reduced_app
@@ -214,6 +216,8 @@ def libs_dir_from_glob(libs_glob_cp: str) -> Path:
 
 
 
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
     ap.add_argument("tests_inventory_csv", type=str)
@@ -254,6 +258,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "adopted-filter",
             "adopted-reduce",
             "adopted-run",
+            "pull-request-maker",
             "all",
         ],
         default="all",
@@ -377,32 +382,37 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
     adopted_reduced_out_root = Path(args.adopted_reduced_out)
     adopted_root = Path(args.adopted_dir)
     adopted_fix_script = Path("src/pipeline_fix.py")
+    pr_template = Path("docs/PR_TEMPLATE.md")
+    pr_out_root = Path("results/pr")
 
     # Global coverage report CSV
-    summary_csv = out_dir / "coverage_summary.csv"
+    summary_csv = Path("results/coverage/coverage_summary.csv")
     header = (
-        "repo,fqcn,"
-        "manual_line_covered,agt_line_covered,line_total,"
-        "manual_branch_covered,agt_branch_covered,branch_total,"
-        "manual_failed,manual_timeout,manual_skipped,"
-        "agt_failed,agt_timeout,agt_skipped\n"
+        "repo,fqcn,variant,"
+        "line_percentage_coverage,line_covered,line_total,"
+        "branch_percentage_coverage,branch_covered,branch_total,"
+        "failed,timeout,skipped\n"
     )
     if args.step in ("run", "all"):
         # Clear it if it already exists to avoid appending to old results in the same run
+        summary_csv.parent.mkdir(parents=True, exist_ok=True)
         summary_csv.write_text(header, encoding="utf-8")
     elif not summary_csv.exists():
+        summary_csv.parent.mkdir(parents=True, exist_ok=True)
         summary_csv.write_text(header, encoding="utf-8")
 
-    adopted_summary_csv = out_dir / "adopted_coverage_summary.csv"
+    adopted_summary_csv = Path("results/coverage/adopted_coverage_summary.csv")
     adopted_header = (
-        "repo,fqcn,"
-        "adopted_line_covered,line_total,"
-        "adopted_branch_covered,branch_total,"
-        "adopted_failed,adopted_timeout,adopted_skipped\n"
+        "repo,fqcn,variant,"
+        "line_percentage_coverage,line_covered,line_total,"
+        "branch_percentage_coverage,branch_covered,branch_total,"
+        "failed,timeout,skipped\n"
     )
     if args.step in ("adopted-run", "all"):
+        adopted_summary_csv.parent.mkdir(parents=True, exist_ok=True)
         adopted_summary_csv.write_text(adopted_header, encoding="utf-8")
     elif not adopted_summary_csv.exists():
+        adopted_summary_csv.parent.mkdir(parents=True, exist_ok=True)
         adopted_summary_csv.write_text(adopted_header, encoding="utf-8")
 
     ran = 0
@@ -425,6 +435,7 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
         "adopted-run",
         "adopted-comment",
         "adopted-fix",
+        "pull-request-maker",
     ):
         summary_path = Path(args.coverage_summary) if args.coverage_summary else summary_csv
         if summary_path.exists():
@@ -433,12 +444,13 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
             for row in cov_rows:
                 repo_row = (row.get("repo", "") or "").strip()
                 fqcn_row = (row.get("fqcn", "") or "").strip()
-                raw = (row.get("agt_line_covered", "") or "").strip()
+                variant = (row.get("variant", "") or "").strip()
+                raw = (row.get("line_covered", "") or "").strip()
                 try:
                     val = int(raw)
                 except ValueError:
                     val = 0
-                if repo_row and fqcn_row and val > 0:
+                if repo_row and fqcn_row and variant == "auto" and val > 0:
                     allow.add((repo_row, fqcn_row))
             covfilter_allow = allow
 
@@ -929,22 +941,34 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                         except Exception as e:
                             print(f'[agt] compare: FAIL (tri_compare: {e}) repo="{repo}" fqcn="{fqcn}" variant="{variant}" (see {tri_log})')
 
+        if args.step in ("pull-request-maker", "all"):
+            if not pr_template.exists():
+                print(f'[agt] pull-request-maker: Skip (missing template): {pr_template}')
+            else:
+                manual_test_src = first_test_source_for_fqcn(manual_sources or final_sources, manual_test_fqcn)
+                ensure_dir(pr_out_root)
+                for variant in ("adopted", "agentic"):
+                    out_path = pr_out_root / f"{target_id}.{variant}.md"
+                    ok = write_pr_draft(
+                        template_path=pr_template,
+                        out_path=out_path,
+                        repo=repo,
+                        fqcn=fqcn,
+                        target_id=target_id,
+                        variant=variant,
+                        manual_test_src=manual_test_src,
+                        adopted_reduced_root=adopted_reduced_out_root,
+                    )
+                    if ok:
+                        print(f'[agt] pull-request-maker: wrote {out_path}')
+                    else:
+                        print(f'[agt] pull-request-maker: Skip (missing {variant} reduced test) for {target_id}')
+
         # -------- Run compiled tests normally --------
         if args.step in ("run", "all"):
-            # We also collect coverage for manual and agt tests for the summary CSV
-            cov_stats = {
-                "manual": (0, 0, 0, 0),
-                "agt": (0, 0, 0, 0)
-            }
-            status_counts = {
-                "manual_failed": 0,
-                "manual_timeout": 0,
-                "manual_skipped": 0,
-                "agt_failed": 0,
-                "agt_timeout": 0,
-                "agt_skipped": 0,
-            }
             jacoco_cli = jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar"
+            wrote_manual = False
+            wrote_auto = False
 
             for src in final_sources:
                 pkg, cls = parse_package_and_class(src)
@@ -974,41 +998,63 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
                 )
                 if status != "passed":
                     print(f"[agt] Test failed: {test_fqcn} (see {run_log})")
-                else:
-                    # If test passed, collect coverage stats if it's one of our targets
-                    if jacoco_cli.exists():
-                        stats = get_coverage_stats(jacoco_cli, exec_file, sut_jar, fqcn, build_dir)
-                        if test_fqcn == manual_test_fqcn:
-                            cov_stats["manual"] = stats
-                        if test_fqcn == generated_test_fqcn:
-                            cov_stats["agt"] = stats
-                if test_fqcn == manual_test_fqcn:
-                    if status == "timeout":
-                        status_counts["manual_timeout"] += 1
-                    elif status == "failed":
-                        status_counts["manual_failed"] += 1
-                if test_fqcn == generated_test_fqcn:
-                    if status == "timeout":
-                        status_counts["agt_timeout"] += 1
-                    elif status == "failed":
-                        status_counts["agt_failed"] += 1
+                stats = (0, 0, 0, 0)
+                if status == "passed" and jacoco_cli.exists():
+                    stats = get_coverage_stats(jacoco_cli, exec_file, sut_jar, fqcn, build_dir)
+
+                if test_fqcn == manual_test_fqcn and not wrote_manual:
+                    write_coverage_row(
+                        csv_path=summary_csv,
+                        repo=repo,
+                        fqcn=fqcn,
+                        variant="manual",
+                        line_covered=stats[0],
+                        line_total=stats[1],
+                        branch_covered=stats[2],
+                        branch_total=stats[3],
+                        status=status,
+                    )
+                    wrote_manual = True
+
+                if test_fqcn == generated_test_fqcn and not wrote_auto:
+                    write_coverage_row(
+                        csv_path=summary_csv,
+                        repo=repo,
+                        fqcn=fqcn,
+                        variant="auto",
+                        line_covered=stats[0],
+                        line_total=stats[1],
+                        branch_covered=stats[2],
+                        branch_total=stats[3],
+                        status=status,
+                    )
+                    wrote_auto = True
 
                 ran += 1
 
-            # Write summary row for this CUT
-            if not manual_test_fqcn:
-                status_counts["manual_skipped"] += 1
-            if not generated_test_fqcn:
-                status_counts["agt_skipped"] += 1
-            with summary_csv.open("a", encoding="utf-8") as f:
-                m_lc, m_lt, m_bc, m_bt = cov_stats["manual"]
-                a_lc, a_lt, a_bc, a_bt = cov_stats["agt"]
-                line_total = m_lt if m_lt else a_lt
-                branch_total = m_bt if m_bt else a_bt
-                f.write(
-                    f"{repo},{fqcn},{m_lc},{a_lc},{line_total},{m_bc},{a_bc},{branch_total},"
-                    f"{status_counts['manual_failed']},{status_counts['manual_timeout']},{status_counts['manual_skipped']},"
-                    f"{status_counts['agt_failed']},{status_counts['agt_timeout']},{status_counts['agt_skipped']}\n"
+            if not wrote_manual:
+                write_coverage_row(
+                    csv_path=summary_csv,
+                    repo=repo,
+                    fqcn=fqcn,
+                    variant="manual",
+                    line_covered=0,
+                    line_total=0,
+                    branch_covered=0,
+                    branch_total=0,
+                    status="skipped",
+                )
+            if not wrote_auto:
+                write_coverage_row(
+                    csv_path=summary_csv,
+                    repo=repo,
+                    fqcn=fqcn,
+                    variant="auto",
+                    line_covered=0,
+                    line_total=0,
+                    branch_covered=0,
+                    branch_total=0,
+                    status="skipped",
                 )
         else:
             # If not running, we don't increment 'ran' or write to summary_csv for now.
@@ -1019,69 +1065,77 @@ def run_pipeline(args: Optional[argparse.Namespace] = None) -> int:
             if covfilter_allow is not None and (repo, fqcn) not in covfilter_allow:
                 print(f'[agt] adopted-run: Skip (agt_line_covered=0): repo="{repo}" fqcn="{fqcn}"')
             else:
-                adopted_src = adopted_test_path(adopted_root, target_id)
-                if not adopted_src or not adopted_src.exists():
-                    print(f'[agt] adopted-run: Skip (missing adopted test): repo="{repo}" fqcn="{fqcn}"')
+                variants = adopted_variants(adopted_root, target_id)
+                if not variants:
+                    print(f'[agt] adopted-run: Skip (missing adopted tests): repo="{repo}" fqcn="{fqcn}"')
                 else:
-                    adopted_build = build_dir / "adopted-classes" / target_id
-                    ensure_dir(adopted_build)
-                    adopt_compile_log = logs_dir / f"{target_id}.adopted.compile.log"
-                    ok_adopt, tail_adopt, _final_adopt_sources = compile_test_set_smart(
-                        java_files=[adopted_src],
-                        build_dir=adopted_build,
-                        libs_glob_cp=args.libs_cp,
-                        sut_jar=sut_jar,
-                        log_file=adopt_compile_log,
-                        repo_root_for_deps=repo_root_for_deps,
-                        max_rounds=args.dep_rounds,
-                    )
-                    if not ok_adopt:
-                        print(f'[agt] adopted-run: Skip (compile failed): repo="{repo}" fqcn="{fqcn}" (see {adopt_compile_log})')
-                        print("[agt][ADOPTED-COMPILE-TAIL]\n" + tail_adopt)
-                    else:
+                    for variant, adopted_src in variants:
+                        if not adopted_src.exists():
+                            print(f'[agt] adopted-run: Skip (missing {variant} test): repo="{repo}" fqcn="{fqcn}"')
+                            continue
+                        adopted_build = build_dir / "adopted-classes" / variant / target_id
+                        ensure_dir(adopted_build)
+                        adopt_compile_log = logs_dir / f"{target_id}.adopted.{variant}.compile.log"
+                        ok_adopt, tail_adopt, _final_adopt_sources = compile_test_set_smart(
+                            java_files=[adopted_src],
+                            build_dir=adopted_build,
+                            libs_glob_cp=args.libs_cp,
+                            sut_jar=sut_jar,
+                            log_file=adopt_compile_log,
+                            repo_root_for_deps=repo_root_for_deps,
+                            max_rounds=args.dep_rounds,
+                        )
+                        if not ok_adopt:
+                            print(f'[agt] adopted-run: Skip (compile failed): repo="{repo}" fqcn="{fqcn}" variant="{variant}" (see {adopt_compile_log})')
+                            print("[agt][ADOPTED-COMPILE-TAIL]\n" + tail_adopt)
+                            continue
+
                         adopt_pkg, adopt_cls = parse_package_and_class(adopted_src)
                         if not adopt_cls:
-                            print(f'[agt] adopted-run: Skip (cannot parse class): repo="{repo}" fqcn="{fqcn}"')
-                        else:
-                            adopted_fqcn = f"{adopt_pkg}.{adopt_cls}" if adopt_pkg else adopt_cls
-                            junit_ver = detect_junit_version(adopted_src)
-                            exec_file = out_dir / f"{target_id}__adopted.exec"
-                            run_log = logs_dir / f"{target_id}.adopted.run.log"
-                            print(f"[agt] Running adopted (junit{junit_ver}): {adopted_fqcn}")
-                            status = run_one_test_with_jacoco(
-                                junit_version=junit_ver,
-                                test_fqcn=adopted_fqcn,
-                                sut_jar=sut_jar,
-                                libs_glob_cp=args.libs_cp,
-                                compiled_tests_dir=adopted_build,
-                                jacoco_agent_jar=jacoco_agent,
-                                jacoco_exec_file=exec_file,
-                                log_file=run_log,
-                                tool_jar=Path(args.tool_jar),
-                                timeout_ms=args.timeout_ms,
+                            print(f'[agt] adopted-run: Skip (cannot parse class): repo="{repo}" fqcn="{fqcn}" variant="{variant}"')
+                            continue
+
+                        adopted_fqcn = f"{adopt_pkg}.{adopt_cls}" if adopt_pkg else adopt_cls
+                        junit_ver = detect_junit_version(adopted_src)
+                        exec_file = out_dir / f"{target_id}__{variant}.exec"
+                        run_log = logs_dir / f"{target_id}.adopted.{variant}.run.log"
+                        print(f"[agt] Running adopted ({variant}, junit{junit_ver}): {adopted_fqcn}")
+                        status = run_one_test_with_jacoco(
+                            junit_version=junit_ver,
+                            test_fqcn=adopted_fqcn,
+                            sut_jar=sut_jar,
+                            libs_glob_cp=args.libs_cp,
+                            compiled_tests_dir=adopted_build,
+                            jacoco_agent_jar=jacoco_agent,
+                            jacoco_exec_file=exec_file,
+                            log_file=run_log,
+                            tool_jar=Path(args.tool_jar),
+                            timeout_ms=args.timeout_ms,
+                        )
+                        if status != "passed":
+                            print(f"[agt] adopted test failed: {adopted_fqcn} (see {run_log})")
+
+                        adopted_cov = (0, 0, 0, 0)
+                        if status == "passed" and (jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar").exists():
+                            adopted_cov = get_coverage_stats(
+                                jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar",
+                                exec_file,
+                                sut_jar,
+                                fqcn,
+                                build_dir,
                             )
-                            if status != "passed":
-                                print(f"[agt] adopted test failed: {adopted_fqcn} (see {run_log})")
-                            adopted_cov = (0, 0, 0, 0)
-                            if status == "passed" and (jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar").exists():
-                                adopted_cov = get_coverage_stats(
-                                    jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar",
-                                    exec_file,
-                                    sut_jar,
-                                    fqcn,
-                                    build_dir,
-                                )
-                            a_lc, a_lt, a_bc, a_bt = adopted_cov
-                            line_total = a_lt
-                            branch_total = a_bt
-                            adopted_failed = 1 if status == "failed" else 0
-                            adopted_timeout = 1 if status == "timeout" else 0
-                            adopted_skipped = 1 if status == "skipped" else 0
-                            with adopted_summary_csv.open("a", encoding="utf-8") as f:
-                                f.write(
-                                    f"{repo},{fqcn},{a_lc},{line_total},{a_bc},{branch_total},"
-                                    f"{adopted_failed},{adopted_timeout},{adopted_skipped}\n"
-                                )
+                        a_lc, a_lt, a_bc, a_bt = adopted_cov
+                        write_coverage_row(
+                            csv_path=adopted_summary_csv,
+                            repo=repo,
+                            fqcn=fqcn,
+                            variant=variant,
+                            line_covered=a_lc,
+                            line_total=a_lt,
+                            branch_covered=a_bc,
+                            branch_total=a_bt,
+                            status=status,
+                        )
 
     print("[agt] Done.")
     print(f"[agt] Ran:     {ran}")
