@@ -25,6 +25,12 @@ From `integration_pipeline`:
   all
 ```
 
+CLI usage (direct):
+
+```bash
+python -m src.cli <step> <tests_inventory.csv> <cut_to_fatjar_map.csv> [options...]
+```
+
 ## Steps
 
 The script accepts a step argument (default: `all`).
@@ -45,12 +51,15 @@ Priority order (recommended run sequence):
 12) `adopted-filter`  
 13) `adopted-reduce`  
 14) `compare`  
-15) `adopted-run`
+15) `adopted-run`  
+16) `pull-request-maker`  
+17) `coverage-comparison`  
+18) `coverage-comparison-reduced`
 
 Step descriptions:
 
 - `compile` - compile generated and manual tests, resolve dependencies, and build test classpaths under `build/`.
-- `run` - execute generated/manual tests with JaCoCo and write `coverage_summary.csv`.
+- `run` - execute generated/manual tests with JaCoCo and write `results/coverage/coverage_summary.csv`.
 - `filter` - run CoverageFilterApp to identify tests with coverage signal (uses fatjar + libs).
 - `reduce` - create reduced generated tests (top-N) based on coverage deltas.
 - `llm-all` - send reduced tests + manual tests (promptType `integration_all`) to produce adopted tests.
@@ -58,12 +67,15 @@ Step descriptions:
 - `llm-integration` - send `_Improved` tests + manual tests (promptType `integration_merge`) to produce adopted tests.
 - `llm-integration-step-by-step` - send `_Improved` tests + manual tests (promptType `integration_step_by_step`) to produce `_Adopted_StepByStep` tests.
 - `agent` - use Codex CLI to integrate `_Improved` tests with manual tests and output adopted tests (defaults to CLI model).
-- `adopted-fix` - normalize adopted tests (via `src/pipeline_fix.py`) by removing `_scaffolding` imports/extends and adding `throws Exception` to test methods.
+- `adopted-fix` - normalize adopted tests (via `src/pipeline/fix.py`) by removing `_scaffolding` imports/extends and adding `throws Exception` to test methods.
 - `adopted-comment` - iteratively comment compile-error lines in `_Adopted` and `_Adopted_Agentic` tests until they compile.
 - `adopted-filter` - run CoverageFilterApp for `_Adopted` and `_Adopted_Agentic` tests against manual tests.
 - `adopted-reduce` - reduce `_Adopted` and `_Adopted_Agentic` tests (default top 5; `--adopted-reduce-max-tests`).
 - `compare` - compare adopted vs generated tests (PMD/CPD + tri-compare metrics).
-- `adopted-run` - execute adopted tests with JaCoCo and write `adopted_coverage_summary.csv`.
+- `adopted-run` - execute adopted and agentic tests with JaCoCo and write `results/coverage/adopted_coverage_summary.csv`.
+- `pull-request-maker` - generate per-CUT PR drafts in `results/pr/` from `docs/PR_TEMPLATE.md`.
+- `coverage-comparison` - compare coverage for manual/auto/adopted/agentic tests; writes `results/compare/coverage_compare.csv`.
+- `coverage-comparison-reduced` - compare coverage for reduced auto/adopted/agentic tests using a shared top-N; writes `results/compare/coverage_compare_reduced.csv`.
 - `all` - run all steps in the priority order above.
 
 ## Inputs
@@ -81,18 +93,22 @@ Step descriptions:
 
 - `build/` compiled test classes
 - `tmp/` logs, coverage exec files, and summaries
-  - `tmp/coverage_summary.csv`
-  - `tmp/adopted_coverage_summary.csv`
+  - `results/coverage/coverage_summary.csv`
+  - `results/coverage/adopted_coverage_summary.csv`
 - `result/` intermediate artifacts (covfilter/reduced/compare)
   - `result/covfilter/` (generated covfilter outputs)
   - `result/reduced-agt/` (reduced generated tests)
 - `result/covfilter-adopted/` (adopted covfilter outputs)
 - `result/reduced-adopted/` (reduced adopted tests)
-  - `result/compare/` (comparison CSVs)
+- `results/compare/` (comparison CSVs, including coverage comparisons)
+  - `results/compare/compare.csv`
+  - `results/compare/tri_compare.csv`
+  - `results/compare/coverage_compare.csv`
+  - `results/compare/coverage_compare_reduced.csv`
 
 ## Notes
 
-- The launcher uses `python -m integration_pipeline.pipeline_main` and assumes
+- The launcher uses `python -m src.cli` and assumes
   module sources are in `src/`.
 - Coverage summary CSVs are tracked in git; everything else under `tmp/`
   is ignored by default.

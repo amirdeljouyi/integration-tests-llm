@@ -7,7 +7,7 @@ STEP="${3:-all}"
 
 echo "[integration-pipeline] Starting (step: ${STEP})..."
 
-python -m src.pipeline_main \
+python -m src.cli \
   "${INV}" \
   "${MAP}" \
   --generated-dir ../collected-tests/generated \
