@@ -8,6 +8,8 @@ from ..core.coverage import write_coverage_row
 from .run import run_test_with_coverage
 from ..pipeline.helpers import (
     adopted_variants,
+    find_scaffolding_source,
+    fix_reduced_scaffolding_import,
     first_test_source_for_fqcn,
     reduced_test_path,
     reduced_variant_test_path,
@@ -17,17 +19,6 @@ from .base import Step
 if TYPE_CHECKING:
     from ..pipeline.pipeline import TargetContext
 
-
-def _scaffolding_for_test(test_src: Path, candidate_sources: list[Path]) -> Optional[Path]:
-    stem = test_src.stem
-    base = stem.split("_Top", 1)[0]
-    if not base.endswith("_ESTest"):
-        return None
-    want_stem = f"{base}_scaffolding"
-    for p in candidate_sources:
-        if p.stem == want_stem:
-            return p
-    return None
 
 
 def run_coverage_for_test(
@@ -216,9 +207,10 @@ class CoverageComparisonReducedStep(Step):
 
         if auto_reduced and auto_reduced.exists():
             compile_sources = [auto_reduced]
-            scaffolding = _scaffolding_for_test(auto_reduced, ctx.final_sources)
+            scaffolding = find_scaffolding_source(auto_reduced, ctx.final_sources)
             if scaffolding and scaffolding.exists():
                 compile_sources.append(scaffolding)
+            fix_reduced_scaffolding_import(auto_reduced, scaffolding)
             run_coverage_for_test(
                 test_src=auto_reduced,
                 variant="auto-reduced",
@@ -242,6 +234,7 @@ class CoverageComparisonReducedStep(Step):
             reduced_src = reduced_variant_test_path(self.pipeline.adopted_reduced_out_root, variant, ctx.target_id, top_n)
             if not reduced_src or not reduced_src.exists():
                 continue
+            fix_reduced_scaffolding_import(reduced_src, find_scaffolding_source(reduced_src, ctx.final_sources))
             run_coverage_for_test(
                 test_src=reduced_src,
                 variant=f"{variant}-reduced",

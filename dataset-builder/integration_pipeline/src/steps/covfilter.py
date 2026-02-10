@@ -7,8 +7,11 @@ from typing import List, Optional, Tuple, TYPE_CHECKING
 from ..core.common import ensure_dir, shlex_join, write_text
 from ..pipeline.helpers import (
     adopted_variants,
+    find_scaffolding_source,
+    fix_reduced_scaffolding_import,
     first_test_source_for_fqcn,
     libs_dir_from_glob,
+    reduced_test_path,
     test_fqcn_from_source,
 )
 from .base import Step
@@ -26,6 +29,7 @@ DEFAULT_JAVA_OPTS: List[str] = [
     "--add-opens=java.base/java.net=ALL-UNNAMED",
     "-Djava.awt.headless=true",
 ]
+
 
 
 class CovfilterRunner:
@@ -347,6 +351,12 @@ class ReduceStep(Step):
         if not ok_red:
             print(f'[agt] reduce: FAIL (see {reduced_log})')
             print("[agt][REDUCE-TAIL]\n" + red_tail)
+            return True
+
+        reduced_src = reduced_test_path(reduced_root, ctx.target_id, generated_test_src, top_n)
+        if reduced_src and reduced_src.exists():
+            scaffolding_src = find_scaffolding_source(generated_test_src, ctx.final_sources)
+            fix_reduced_scaffolding_import(reduced_src, scaffolding_src)
         return True
 
 
