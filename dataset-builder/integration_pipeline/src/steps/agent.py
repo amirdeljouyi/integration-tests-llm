@@ -4,10 +4,15 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
-from .common import ensure_dir, parse_package_and_class
+from ..core.common import ensure_dir, parse_package_and_class, repo_to_dir
+from ..pipeline.helpers import first_test_source_for_fqcn, improved_test_path
+from .base import Step
 from .llm import _output_class_name_from_path, _rewrite_class_name, write_adopted_output
+
+if TYPE_CHECKING:
+    from ..pipeline.pipeline import TargetContext
 
 
 def _read_text(path: Path) -> str:
@@ -242,3 +247,43 @@ def run_codex_integration(
     rewritten = _rewrite_class_name(text, out_name)
     ensure_dir(out_root)
     return write_adopted_output(out_root=out_root, target_id=target_id, source=rewritten)
+
+
+class AgentStep(Step):
+    step_names = ("agent",)
+
+    def run(self, ctx: "TargetContext") -> bool:
+        if not self.should_run():
+            return True
+        if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
+            print(f'[agt] agent: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+            return True
+        if not shutil.which("codex"):
+            print(f'[agt] agent: Skip (missing codex CLI): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+            return True
+
+        improved_src = improved_test_path(self.pipeline.adopted_root, ctx.target_id)
+        manual_test_src = first_test_source_for_fqcn(ctx.manual_sources or ctx.final_sources, ctx.manual_test_fqcn)
+        if not improved_src or not improved_src.exists():
+            print(f'[agt] agent: Skip (missing improved test): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+            return True
+        if not manual_test_src or not manual_test_src.exists():
+            print(f'[agt] agent: Skip (missing manual test source): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+            return True
+
+        repo_root = self.pipeline.repos_dir / repo_to_dir(ctx.repo)
+        out_path = run_codex_integration(
+            model=self.pipeline.args.agent_model,
+            improved_test_path=improved_src,
+            manual_test_path=manual_test_src,
+            repo_root=repo_root if repo_root.exists() else None,
+            out_root=self.pipeline.adopted_root,
+            target_id=ctx.target_id,
+            max_context_files=self.pipeline.args.agent_max_context_files,
+            max_context_chars=self.pipeline.args.agent_max_context_chars,
+            max_prompt_chars=self.pipeline.args.agent_max_prompt_chars,
+            log_file=self.pipeline.logs_dir / f"{ctx.target_id}.agent.log",
+        )
+        if not out_path:
+            print(f'[agt] agent: FAIL (no output): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+        return True

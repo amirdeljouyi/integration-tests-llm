@@ -4,6 +4,13 @@ import argparse
 import os
 import re
 import sys
+import subprocess
+from typing import TYPE_CHECKING
+
+from .base import Step
+
+if TYPE_CHECKING:
+    from ..pipeline.pipeline import TargetContext
 
 
 def iter_target_files(root):
@@ -169,3 +176,26 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+class AdoptedFixStep(Step):
+    step_names = ("adopted-fix",)
+
+    def run(self, ctx: "TargetContext") -> bool:
+        if not self.should_run():
+            return True
+        if not self.pipeline.adopted_root.exists():
+            print(f'[agt] adopted-fix: Skip (missing adopted dir): {self.pipeline.adopted_root}')
+            return True
+        if not self.pipeline.adopted_fix_script.exists():
+            print(f'[agt] adopted-fix: Skip (missing script): {self.pipeline.adopted_fix_script}')
+            return True
+
+        fix_log = self.pipeline.logs_dir / f"{ctx.target_id}.adopted.fix.log"
+        cmd = ["python3", str(self.pipeline.adopted_fix_script), str(self.pipeline.adopted_root)]
+        print(f'[agt] adopted-fix: {ctx.target_id}')
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        fix_log.write_text(proc.stdout or "", encoding="utf-8", errors="ignore")
+        if proc.returncode != 0:
+            print(f'[agt] adopted-fix: FAIL (see {fix_log}) repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+        return True

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Iterable, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
-from .common import (
+from ..core.common import (
     ensure_dir,
     extract_missing_symbols_from_javac_log,
     file_declares_type,
@@ -12,6 +12,10 @@ from .common import (
     looks_like_scaffolding,
     shlex_join,
 )
+from .base import Step
+
+if TYPE_CHECKING:
+    from ..pipeline.pipeline import TargetContext
 
 
 class JavacCompiler:
@@ -214,3 +218,31 @@ def compile_test_set_smart(
         repo_root_for_deps=repo_root_for_deps,
         max_rounds=max_rounds,
     )
+
+
+class CompileStep(Step):
+    step_names = ("compile",)
+
+    def run(self, ctx: "TargetContext") -> bool:
+        if not self.should_run():
+            ctx.final_sources = ctx.sources
+            return True
+
+        compile_log = self.pipeline.logs_dir / f"{ctx.target_id}.compile.log"
+        ok, tail, compiled_sources = compile_test_set_smart(
+            java_files=ctx.sources,
+            build_dir=ctx.target_build,
+            libs_glob_cp=self.pipeline.args.libs_cp,
+            sut_jar=ctx.sut_jar,
+            log_file=compile_log,
+            repo_root_for_deps=ctx.repo_root_for_deps,
+            max_rounds=self.pipeline.args.dep_rounds,
+        )
+
+        if not ok:
+            print(f'[agt] Skip (compile failed): repo="{ctx.repo}" fqcn="{ctx.fqcn}" (see {compile_log})')
+            print("[agt][COMPILE-TAIL]\n" + tail)
+            return False
+
+        ctx.final_sources = compiled_sources
+        return True

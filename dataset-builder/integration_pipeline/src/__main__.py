@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from .pipeline.app import main
+from .cli.app import cli
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    cli()

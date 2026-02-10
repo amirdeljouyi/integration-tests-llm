@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import requests
+from ..pipeline.helpers import first_test_source_for_fqcn, improved_test_path, reduced_test_path
+from .base import Step
+
+if TYPE_CHECKING:
+    from ..pipeline.pipeline import TargetContext
 
 
 def _output_class_name_from_path(path: Path, suffix: str) -> str:
@@ -179,3 +186,88 @@ def send_reduced_test_to_dir(
         prompt_type=prompt_type,
         output_suffix=output_suffix,
     )
+
+
+class SendStep(Step):
+    step_names = (
+        "send",
+        "llm-all",
+        "llm-agt-improvement",
+        "llm-integration",
+        "llm-integration-step-by-step",
+    )
+
+    def run(self, ctx: "TargetContext") -> bool:
+        if not self.should_run():
+            return True
+        send_script = Path(self.pipeline.args.send_script) if self.pipeline.args.send_script else None
+        if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
+            print(f'[agt] send: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+            return True
+
+        reduced_root = Path(self.pipeline.args.reduced_out)
+        top_n = max(1, min(self.pipeline.args.reduce_max_tests, 100))
+        generated_test_src = first_test_source_for_fqcn(ctx.final_sources, ctx.generated_test_fqcn)
+        manual_test_src = first_test_source_for_fqcn(ctx.manual_sources or ctx.final_sources, ctx.manual_test_fqcn)
+        reduced_src = reduced_test_path(reduced_root, ctx.target_id, generated_test_src, top_n) if generated_test_src else None
+        improved_src = improved_test_path(self.pipeline.adopted_root, ctx.target_id)
+
+        phases = []
+        if self.pipeline.args.step in ("send", "llm-all", "all"):
+            phases.append(("llm-all", "integration_all", "_Adopted", reduced_src))
+        if self.pipeline.args.step == "llm-agt-improvement":
+            phases.append(("llm-agt-improvement", "integration_improvement", "_Improved", reduced_src))
+        if self.pipeline.args.step == "llm-integration":
+            phases.append(("llm-integration", "integration_merge", "_Adopted", improved_src))
+        if self.pipeline.args.step == "llm-integration-step-by-step":
+            phases.append(("llm-integration-step-by-step", "integration_step_by_step", "_Adopted_StepByStep", improved_src))
+
+        for phase_name, prompt_type, output_suffix, agt_src in phases:
+            if phase_name == "llm-integration" and not improved_src:
+                print(f'[agt] {phase_name}: Skip (missing improved test): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                continue
+            if not agt_src or not agt_src.exists():
+                print(f'[agt] {phase_name}: Skip (missing AGT test): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                continue
+            if phase_name != "llm-agt-improvement":
+                if not manual_test_src or not manual_test_src.exists():
+                    print(f'[agt] {phase_name}: Skip (missing manual test source): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                    continue
+
+            mwt_src = None if phase_name == "llm-agt-improvement" else manual_test_src
+
+            send_log = self.pipeline.logs_dir / f"{ctx.target_id}.{phase_name}.send.log"
+            llm_out_root = self.pipeline.adopted_root
+            print(f'[agt] Sending {phase_name} to LLM: repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+            if send_script and send_script.exists():
+                if mwt_src is None:
+                    print(f'[agt] {phase_name}: Skip (send_script requires manual test): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                    continue
+                cmd = [
+                    "python",
+                    str(send_script),
+                    "--api-url",
+                    self.pipeline.args.send_api_url,
+                    "--agt_file_path",
+                    str(agt_src),
+                    "--mwt_file_path",
+                    str(mwt_src),
+                ]
+                proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                send_log.write_text(proc.stdout or "", encoding="utf-8", errors="ignore")
+                if proc.returncode != 0:
+                    print(f'[agt] {phase_name}: FAIL (see {send_log})')
+            else:
+                out_path = send_reduced_test_to_dir(
+                    agt_file_path=agt_src,
+                    mwt_file_path=mwt_src,
+                    api_url=self.pipeline.args.send_api_url,
+                    out_root=llm_out_root,
+                    target_id=ctx.target_id,
+                    prompt_type=prompt_type,
+                    output_suffix=output_suffix,
+                )
+                if not out_path:
+                    print(f'[agt] {phase_name}: FAIL (see {send_log})')
+            time.sleep(max(0, self.pipeline.args.send_sleep_seconds))
+        return True
