@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
-from ..core.common import detect_junit_version, parse_package_and_class
 from .compile import compile_test_set_smart
 from ..core.coverage import write_coverage_row
-from .run import run_one_test_with_jacoco, get_coverage_stats
+from .run import run_test_with_coverage
 from ..pipeline.helpers import (
     adopted_variants,
     first_test_source_for_fqcn,
@@ -19,6 +18,18 @@ if TYPE_CHECKING:
     from ..pipeline.pipeline import TargetContext
 
 
+def _scaffolding_for_test(test_src: Path, candidate_sources: list[Path]) -> Optional[Path]:
+    stem = test_src.stem
+    base = stem.split("_Top", 1)[0]
+    if not base.endswith("_ESTest"):
+        return None
+    want_stem = f"{base}_scaffolding"
+    for p in candidate_sources:
+        if p.stem == want_stem:
+            return p
+    return None
+
+
 def run_coverage_for_test(
     *,
     test_src: Path,
@@ -26,6 +37,7 @@ def run_coverage_for_test(
     repo: str,
     fqcn: str,
     build_dir: Path,
+    compiled_tests_dir: Optional[Path],
     log_file: Path,
     exec_file: Path,
     libs_glob_cp: str,
@@ -36,17 +48,34 @@ def run_coverage_for_test(
     repo_root_for_deps: Optional[Path],
     summary_csv: Path,
     max_rounds: int = 3,
+    compile_sources: Optional[list[Path]] = None,
 ) -> None:
-    ok_compile, _tail, _final_sources = compile_test_set_smart(
-        java_files=[test_src],
-        build_dir=build_dir,
-        libs_glob_cp=libs_glob_cp,
-        sut_jar=sut_jar,
-        log_file=log_file,
-        repo_root_for_deps=repo_root_for_deps,
-        max_rounds=max_rounds,
-    )
-    if not ok_compile:
+    if compile_sources is not None:
+        ok_compile, _tail, _final_sources = compile_test_set_smart(
+            java_files=compile_sources,
+            build_dir=build_dir,
+            libs_glob_cp=libs_glob_cp,
+            sut_jar=sut_jar,
+            log_file=log_file,
+            repo_root_for_deps=repo_root_for_deps,
+            max_rounds=max_rounds,
+        )
+        if not ok_compile:
+            write_coverage_row(
+                csv_path=summary_csv,
+                repo=repo,
+                fqcn=fqcn,
+                variant=variant,
+                line_covered=0,
+                line_total=0,
+                branch_covered=0,
+                branch_total=0,
+                status="failed",
+            )
+            return
+        compiled_tests_dir = build_dir
+
+    if compiled_tests_dir is None:
         write_coverage_row(
             csv_path=summary_csv,
             repo=repo,
@@ -59,41 +88,21 @@ def run_coverage_for_test(
             status="failed",
         )
         return
-
-    pkg, cls = parse_package_and_class(test_src)
-    if not cls:
-        write_coverage_row(
-            csv_path=summary_csv,
-            repo=repo,
-            fqcn=fqcn,
-            variant=variant,
-            line_covered=0,
-            line_total=0,
-            branch_covered=0,
-            branch_total=0,
-            status="skipped",
-        )
-        return
-
-    test_fqcn = f"{pkg}.{cls}" if pkg else cls
-    junit_ver = detect_junit_version(test_src)
-    status = run_one_test_with_jacoco(
-        junit_version=junit_ver,
-        test_fqcn=test_fqcn,
+    jacoco_cli = jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar"
+    status, stats, _test_fqcn = run_test_with_coverage(
+        test_src=test_src,
+        compiled_tests_dir=compiled_tests_dir,
+        exec_file=exec_file,
+        run_log=log_file,
         sut_jar=sut_jar,
         libs_glob_cp=libs_glob_cp,
-        compiled_tests_dir=build_dir,
-        jacoco_agent_jar=jacoco_agent,
-        jacoco_exec_file=exec_file,
-        log_file=log_file,
+        jacoco_agent=jacoco_agent,
         tool_jar=tool_jar,
         timeout_ms=timeout_ms,
+        jacoco_cli=jacoco_cli,
+        target_fqcn=fqcn,
+        coverage_tmp_dir=build_dir,
     )
-
-    stats: Tuple[int, int, int, int] = (0, 0, 0, 0)
-    jacoco_cli = jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar"
-    if status == "passed" and jacoco_cli.exists():
-        stats = get_coverage_stats(jacoco_cli, exec_file, sut_jar, fqcn, build_dir)
 
     write_coverage_row(
         csv_path=summary_csv,
@@ -130,6 +139,7 @@ class CoverageComparisonStep(Step):
                 repo=ctx.repo,
                 fqcn=ctx.fqcn,
                 build_dir=self.pipeline.build_dir / "coverage-compare" / "manual" / ctx.target_id,
+                compiled_tests_dir=ctx.target_build,
                 log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.manual.log",
                 exec_file=self.pipeline.out_dir / f"{ctx.target_id}__manual.exec",
                 libs_glob_cp=self.pipeline.args.libs_cp,
@@ -139,6 +149,7 @@ class CoverageComparisonStep(Step):
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
                 summary_csv=self.pipeline.coverage_compare_csv,
+                compile_sources=None,
             )
 
         if generated_test_src and generated_test_src.exists():
@@ -148,6 +159,7 @@ class CoverageComparisonStep(Step):
                 repo=ctx.repo,
                 fqcn=ctx.fqcn,
                 build_dir=self.pipeline.build_dir / "coverage-compare" / "auto" / ctx.target_id,
+                compiled_tests_dir=ctx.target_build,
                 log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.auto.log",
                 exec_file=self.pipeline.out_dir / f"{ctx.target_id}__auto.exec",
                 libs_glob_cp=self.pipeline.args.libs_cp,
@@ -157,6 +169,7 @@ class CoverageComparisonStep(Step):
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
                 summary_csv=self.pipeline.coverage_compare_csv,
+                compile_sources=None,
             )
 
         for variant, adopted_src in variants:
@@ -168,6 +181,7 @@ class CoverageComparisonStep(Step):
                 repo=ctx.repo,
                 fqcn=ctx.fqcn,
                 build_dir=self.pipeline.build_dir / "coverage-compare" / variant / ctx.target_id,
+                compiled_tests_dir=None,
                 log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.{variant}.log",
                 exec_file=self.pipeline.out_dir / f"{ctx.target_id}__{variant}.exec",
                 libs_glob_cp=self.pipeline.args.libs_cp,
@@ -177,6 +191,7 @@ class CoverageComparisonStep(Step):
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
                 summary_csv=self.pipeline.coverage_compare_csv,
+                compile_sources=[adopted_src],
             )
         return True
 
@@ -200,12 +215,17 @@ class CoverageComparisonReducedStep(Step):
         tool_jar = Path(self.pipeline.args.tool_jar)
 
         if auto_reduced and auto_reduced.exists():
+            compile_sources = [auto_reduced]
+            scaffolding = _scaffolding_for_test(auto_reduced, ctx.final_sources)
+            if scaffolding and scaffolding.exists():
+                compile_sources.append(scaffolding)
             run_coverage_for_test(
                 test_src=auto_reduced,
                 variant="auto-reduced",
                 repo=ctx.repo,
                 fqcn=ctx.fqcn,
                 build_dir=self.pipeline.build_dir / "coverage-compare-reduced" / "auto" / ctx.target_id,
+                compiled_tests_dir=None,
                 log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.auto-reduced.log",
                 exec_file=self.pipeline.out_dir / f"{ctx.target_id}__auto_reduced.exec",
                 libs_glob_cp=self.pipeline.args.libs_cp,
@@ -215,6 +235,7 @@ class CoverageComparisonReducedStep(Step):
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
                 summary_csv=self.pipeline.coverage_compare_reduced_csv,
+                compile_sources=compile_sources,
             )
 
         for variant in ("adopted", "agentic"):
@@ -227,6 +248,7 @@ class CoverageComparisonReducedStep(Step):
                 repo=ctx.repo,
                 fqcn=ctx.fqcn,
                 build_dir=self.pipeline.build_dir / "coverage-compare-reduced" / variant / ctx.target_id,
+                compiled_tests_dir=None,
                 log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.{variant}-reduced.log",
                 exec_file=self.pipeline.out_dir / f"{ctx.target_id}__{variant}_reduced.exec",
                 libs_glob_cp=self.pipeline.args.libs_cp,
@@ -236,5 +258,6 @@ class CoverageComparisonReducedStep(Step):
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
                 summary_csv=self.pipeline.coverage_compare_reduced_csv,
+                compile_sources=[reduced_src],
             )
         return True

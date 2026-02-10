@@ -193,8 +193,8 @@ class Pipeline:
             self.adopted_summary_csv.parent.mkdir(parents=True, exist_ok=True)
             self.adopted_summary_csv.write_text(adopted_header, encoding="utf-8")
 
-        self.coverage_compare_csv = Path(self.args.compare_out) / "coverage_compare.csv"
-        self.coverage_compare_reduced_csv = Path(self.args.compare_out) / "coverage_compare_reduced.csv"
+        self.coverage_compare_csv = Path("results/coverage/coverage_compare.csv")
+        self.coverage_compare_reduced_csv = Path("results/coverage/coverage_compare_reduced.csv")
         coverage_compare_header = adopted_header
         if self.args.step in ("coverage-comparison", "all"):
             self.coverage_compare_csv.parent.mkdir(parents=True, exist_ok=True)

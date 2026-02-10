@@ -142,6 +142,49 @@ def run_one_test_with_jacoco(
     )
 
 
+def run_test_with_coverage(
+    *,
+    test_src: Path,
+    compiled_tests_dir: Path,
+    exec_file: Path,
+    run_log: Path,
+    sut_jar: Path,
+    libs_glob_cp: str,
+    jacoco_agent: Path,
+    tool_jar: Path,
+    timeout_ms: int | None,
+    jacoco_cli: Path,
+    target_fqcn: str,
+    coverage_tmp_dir: Path,
+    test_fqcn: str | None = None,
+) -> Tuple[str, Tuple[int, int, int, int], str | None]:
+    if not test_fqcn:
+        pkg, cls = parse_package_and_class(test_src)
+        if not cls:
+            return "skipped", (0, 0, 0, 0), None
+        test_fqcn = f"{pkg}.{cls}" if pkg else cls
+
+    junit_ver = detect_junit_version(test_src)
+    status = run_one_test_with_jacoco(
+        junit_version=junit_ver,
+        test_fqcn=test_fqcn,
+        sut_jar=sut_jar,
+        libs_glob_cp=libs_glob_cp,
+        compiled_tests_dir=compiled_tests_dir,
+        jacoco_agent_jar=jacoco_agent,
+        jacoco_exec_file=exec_file,
+        log_file=run_log,
+        tool_jar=tool_jar,
+        timeout_ms=timeout_ms,
+    )
+
+    stats = (0, 0, 0, 0)
+    if status == "passed" and jacoco_cli.exists():
+        stats = get_coverage_stats(jacoco_cli, exec_file, sut_jar, target_fqcn, coverage_tmp_dir)
+
+    return status, stats, test_fqcn
+
+
 def get_coverage_stats(
     jacoco_cli_jar: Path,
     jacoco_exec_file: Path,
@@ -245,29 +288,27 @@ class RunStep(Step):
                 continue
 
             test_fqcn = f"{pkg}.{cls}" if pkg else cls
-            junit_ver = detect_junit_version(src)
-
             exec_file = self.pipeline.out_dir / f"{ctx.target_id}__{cls}.exec"
             run_log = self.pipeline.logs_dir / f"{ctx.target_id}__{cls}.run.log"
 
-            print(f"[agt] Running (junit{junit_ver}): {test_fqcn}")
-            status = run_one_test_with_jacoco(
-                junit_version=junit_ver,
+            print(f"[agt] Running: {test_fqcn}")
+            status, stats, _ = run_test_with_coverage(
+                test_src=src,
                 test_fqcn=test_fqcn,
+                compiled_tests_dir=ctx.target_build,
+                exec_file=exec_file,
+                run_log=run_log,
                 sut_jar=ctx.sut_jar,
                 libs_glob_cp=self.pipeline.args.libs_cp,
-                compiled_tests_dir=ctx.target_build,
-                jacoco_agent_jar=self.pipeline.jacoco_agent,
-                jacoco_exec_file=exec_file,
-                log_file=run_log,
+                jacoco_agent=self.pipeline.jacoco_agent,
                 tool_jar=Path(self.pipeline.args.tool_jar),
                 timeout_ms=self.pipeline.args.timeout_ms,
+                jacoco_cli=jacoco_cli,
+                target_fqcn=ctx.fqcn,
+                coverage_tmp_dir=self.pipeline.build_dir,
             )
             if status != "passed":
                 print(f"[agt] Test failed: {test_fqcn} (see {run_log})")
-            stats = (0, 0, 0, 0)
-            if status == "passed" and jacoco_cli.exists():
-                stats = get_coverage_stats(jacoco_cli, exec_file, ctx.sut_jar, ctx.fqcn, self.pipeline.build_dir)
 
             if test_fqcn == ctx.manual_test_fqcn and not wrote_manual:
                 write_coverage_row(
@@ -369,35 +410,28 @@ class AdoptedRunStep(Step):
                 print(f'[agt] adopted-run: Skip (cannot parse class): repo="{ctx.repo}" fqcn="{ctx.fqcn}" variant="{variant}"')
                 continue
 
-            adopted_fqcn = f"{adopt_pkg}.{adopt_cls}" if adopt_pkg else adopt_cls
-            junit_ver = detect_junit_version(adopted_src)
             exec_file = self.pipeline.out_dir / f"{ctx.target_id}__{variant}.exec"
             run_log = self.pipeline.logs_dir / f"{ctx.target_id}.adopted.{variant}.run.log"
-            print(f"[agt] Running adopted ({variant}, junit{junit_ver}): {adopted_fqcn}")
-            status = run_one_test_with_jacoco(
-                junit_version=junit_ver,
+            adopted_fqcn = f"{adopt_pkg}.{adopt_cls}" if adopt_pkg else adopt_cls
+            print(f"[agt] Running adopted ({variant}): {adopted_fqcn}")
+            status, adopted_cov, _ = run_test_with_coverage(
+                test_src=adopted_src,
                 test_fqcn=adopted_fqcn,
+                compiled_tests_dir=adopted_build,
+                exec_file=exec_file,
+                run_log=run_log,
                 sut_jar=ctx.sut_jar,
                 libs_glob_cp=self.pipeline.args.libs_cp,
-                compiled_tests_dir=adopted_build,
-                jacoco_agent_jar=self.pipeline.jacoco_agent,
-                jacoco_exec_file=exec_file,
-                log_file=run_log,
+                jacoco_agent=self.pipeline.jacoco_agent,
                 tool_jar=Path(self.pipeline.args.tool_jar),
                 timeout_ms=self.pipeline.args.timeout_ms,
+                jacoco_cli=self.pipeline.jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar",
+                target_fqcn=ctx.fqcn,
+                coverage_tmp_dir=self.pipeline.build_dir,
             )
             if status != "passed":
                 print(f"[agt] adopted test failed: {adopted_fqcn} (see {run_log})")
 
-            adopted_cov = (0, 0, 0, 0)
-            if status == "passed" and (self.pipeline.jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar").exists():
-                adopted_cov = get_coverage_stats(
-                    self.pipeline.jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar",
-                    exec_file,
-                    ctx.sut_jar,
-                    ctx.fqcn,
-                    self.pipeline.build_dir,
-                )
             a_lc, a_lt, a_bc, a_bt = adopted_cov
             write_coverage_row(
                 csv_path=self.pipeline.adopted_summary_csv,

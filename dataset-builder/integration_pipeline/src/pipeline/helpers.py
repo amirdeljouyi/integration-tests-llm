@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from .common import is_probably_test_filename, looks_like_scaffolding, parse_package_and_class
+from ..core.common import is_probably_test_filename, looks_like_scaffolding, parse_package_and_class
 
 
 def find_tests_in_bucket(bucket_root: Path, filenames: List[str]) -> List[Path]:
