@@ -117,6 +117,58 @@ def test_fqcn_from_source(src: Path) -> Optional[str]:
     return f"{pkg}.{cls}" if pkg else cls
 
 
+def find_scaffolding_source(test_src: Path, candidate_sources: Optional[List[Path]] = None) -> Optional[Path]:
+    stem = test_src.stem
+    base = stem.split("_Top", 1)[0]
+    if not base.endswith("_ESTest"):
+        return None
+    want_stem = f"{base}_scaffolding"
+    direct = test_src.parent / f"{want_stem}.java"
+    if direct.exists():
+        return direct
+    if candidate_sources:
+        for p in candidate_sources:
+            if p.stem == want_stem:
+                return p
+    return None
+
+
+def fix_reduced_scaffolding_import(reduced_src: Path, scaffolding_src: Optional[Path]) -> bool:
+    if not scaffolding_src or not reduced_src.exists():
+        return False
+    try:
+        reduced_text = reduced_src.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return False
+
+    scaf_pkg, scaf_cls = parse_package_and_class(scaffolding_src)
+    if not scaf_cls:
+        return False
+
+    import_line = f"import {scaf_cls};"
+    replacement = f"import {scaf_pkg}.{scaf_cls};" if scaf_pkg else ""
+
+    lines = reduced_text.splitlines()
+    new_lines: List[str] = []
+    replaced = False
+    for line in lines:
+        if line.strip() == import_line:
+            if replacement:
+                new_lines.append(replacement)
+            replaced = True
+            continue
+        new_lines.append(line)
+
+    if not replaced:
+        return False
+
+    try:
+        reduced_src.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    except Exception:
+        return False
+    return True
+
+
 def reduced_test_path(reduced_root: Path, target_id: str, generated_src: Path, top_n: int) -> Optional[Path]:
     pkg, cls = parse_package_and_class(generated_src)
     if not cls:
