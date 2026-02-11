@@ -23,7 +23,7 @@ public final class GenerateReducedAgtTestApp {
     /**
      * Args:
      *  0: path to original AGT test source .java (e.g., .../QuteProcessor_1_ESTest.java)
-     *  1: path to test_deltas CSV (e.g., .../test_deltas_all.csv)
+     *  1: path to test_deltas CSV (e.g., .../test_deltas_kept.csv)
      *  2: N (e.g., 10)
      *  3: output dir for generated sources (e.g., .../generated-tests)
      *  4: sort (true|false)  -> if true, sorts by added_lines, then instr, branches, methods
@@ -32,7 +32,7 @@ public final class GenerateReducedAgtTestApp {
         if (args.length < 4) {
             throw new IllegalArgumentException(
                     "Usage: <originalTestJava> <testDeltasCsv> <N> <outDir> [sort=true|false]\n" +
-                            "Example: .../QuteProcessor_1_ESTest.java .../test_deltas_all.csv 10 tmp/generated-tests true"
+                    "Example: .../QuteProcessor_1_ESTest.java .../test_deltas_kept.csv 10 tmp/generated-tests true"
             );
         }
 
@@ -56,10 +56,11 @@ public final class GenerateReducedAgtTestApp {
 
         if (sort) {
             deltas.sort(Comparator
-                    .comparingInt(TestDelta::getAddedLines).reversed()
-                    .thenComparingInt(TestDelta::getAddedInstructions).reversed()
-                    .thenComparingInt(TestDelta::getAddedBranches).reversed()
-                    .thenComparingInt(TestDelta::getAddedMethods).reversed());
+                    .comparingInt(TestDelta::getAddedLines)
+                    .thenComparingInt(TestDelta::getAddedInstructions)
+                    .thenComparingInt(TestDelta::getAddedBranches)
+                    .thenComparingInt(TestDelta::getAddedMethods)
+                    .reversed());
         }
 
         generator.generateReducedClass(originalTestJava, deltas, n, outDir);
