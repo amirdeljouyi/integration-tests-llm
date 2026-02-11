@@ -57,6 +57,8 @@ class Pipeline:
         self.config = build_pipeline_config(self.args)
         for f in fields(PipelineConfig):
             setattr(self, f.name, getattr(self.config, f.name))
+        if self.args.mode and self.args.mode != "both":
+            print(f'[agt] Warning: --mode is deprecated and ignored (received "{self.args.mode}")')
 
     def run(self) -> int:
         self.run_configuration()
@@ -128,7 +130,7 @@ class Pipeline:
         repo_bucket_man = self.manual_dir / repo_to_dir(repo)
 
         # ---------- GENERATED ----------
-        if self.args.mode in ("generated", "both") and gen_files:
+        if gen_files:
             expanded: List[str] = []
             seen_names: Set[str] = set()
 
@@ -151,7 +153,7 @@ class Pipeline:
             sources.extend(find_tests_in_bucket(repo_bucket_gen, gen_non_scaf))
 
         # ---------- MANUAL ----------
-        if self.args.mode in ("manual", "both") and man_files:
+        if man_files:
             manual_primary = find_tests_in_bucket(repo_bucket_man, man_files)
             manual_all = expand_manual_sources(manual_primary)
             manual_sources = list(manual_all)
