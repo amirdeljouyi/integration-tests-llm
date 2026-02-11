@@ -4,7 +4,8 @@ from .base import Step
 from .compile import CompileStep
 from .fix import AdoptedFixStep
 from .comment import AdoptedCommentStep
-from .covfilter import CovfilterStep, AdoptedFilterStep, ReduceStep, AdoptedReduceStep
+from .covfilter import CovfilterStep, AdoptedFilterStep
+from .reduce import ReduceStep, AdoptedReduceStep
 from .llm import SendStep
 from .agent import AgentStep
 from .compare import CompareStep
