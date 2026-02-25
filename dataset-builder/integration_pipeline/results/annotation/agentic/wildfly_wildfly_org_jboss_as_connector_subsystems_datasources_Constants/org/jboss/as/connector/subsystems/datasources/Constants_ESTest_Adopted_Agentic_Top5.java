@@ -1,0 +1,52 @@
+/*
+ * Copyright The WildFly Authors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package org.jboss.as.connector.subsystems.datasources;
+
+import org.junit.Assert;
+import org.junit.Test;
+
+public class Constants_ESTest_Adopted_Agentic_Top5 {
+    @Test
+
+    /**
+     * This test added target-class coverage 100.00% for org.jboss.as.connector.subsystems.datasources.Constants (527/527 lines).
+     * Delta details: +384 methods, +239 branches, +9805 instructions.
+     * Full version of the covered block is here: <a href="https://github.com/wildfly/wildfly/blob/2869203dcca947f3393cff9a3b62cfd527d50491/connector/src/main/java/org/jboss/as/connector/subsystems/datasources/Constants.java#L918-L942">Constants.java (lines 918-942)</a>
+     * Covered Lines:
+     * <pre><code>
+     *     static final SimpleOperationDefinition GET_INSTALLED_DRIVER = new SimpleOperationDefinitionBuilder("get-installed-driver", DataSourcesExtension.getResourceDescriptionResolver())
+     *             .setReadOnly()
+     *             .setRuntimeOnly()
+     *             .setParameters(INSTALLED_DRIVER_NAME)
+     *             .setReplyParameters(INSTALLED_DRIVER_ATTRIBUTES)
+     *             .setAttributeResolver(DataSourcesExtension.getResourceDescriptionResolver("jdbc-driver"))
+     *             .build();
+     *     static final SimpleOperationDefinition DATASOURCE_ENABLE = new SimpleOperationDefinitionBuilder(ENABLE, DataSourcesExtension.getResourceDescriptionResolver()).setDeprecated(ModelVersion.create(3)).build();
+     *     static final SimpleOperationDefinition DATASOURCE_DISABLE = new SimpleOperationDefinitionBuilder(DISABLE, DataSourcesExtension.getResourceDescriptionResolver()).setDeprecated(ModelVersion.create(3))
+     *             .build();
+     *     static final SimpleOperationDefinition FLUSH_IDLE_CONNECTION = new SimpleOperationDefinitionBuilder("flush-idle-connection-in-pool", DataSourcesExtension.getResourceDescriptionResolver())
+     *             .setRuntimeOnly().build();
+     *     static final SimpleOperationDefinition FLUSH_ALL_CONNECTION = new SimpleOperationDefinitionBuilder("flush-all-connection-in-pool", DataSourcesExtension.getResourceDescriptionResolver())
+     *             .setRuntimeOnly().build();
+     *     static final SimpleOperationDefinition DUMP_QUEUED_THREADS = new SimpleOperationDefinitionBuilder("dump-queued-threads-in-pool", DataSourcesExtension.getResourceDescriptionResolver())
+     *             .setReadOnly()
+     *             .setRuntimeOnly()
+     *             .build();
+     *     static final SimpleOperationDefinition FLUSH_INVALID_CONNECTION = new SimpleOperationDefinitionBuilder("flush-invalid-connection-in-pool", DataSourcesExtension.getResourceDescriptionResolver())
+     *             .setRuntimeOnly().build();
+     *     static final SimpleOperationDefinition FLUSH_GRACEFULLY_CONNECTION = new SimpleOperationDefinitionBuilder("flush-gracefully-connection-in-pool", DataSourcesExtension.getResourceDescriptionResolver())
+     *             .setRuntimeOnly().build();
+     *     static final SimpleOperationDefinition TEST_CONNECTION = new SimpleOperationDefinitionBuilder("test-connection-in-pool", DataSourcesExtension.getResourceDescriptionResolver())
+     *             .setParameters(USERNAME, PASSWORD)
+     *             .setRuntimeOnly().build();
+     * </code></pre>
+     * Other newly covered ranges to check: 58;60;62;218;221;223-226;228-231;233-236;239-243;248-252;254-259;262-267;270-274;277-281;283-287;290-295;297-301;303-310;312-318;320-325;327-333;335-341;343-348;350-354;356-359;361-368;370-379;381-387;389-397;399-407;409-417;419-423;426-431;434-440;442-446;449-454;457-462;464-469;471-476;478-483;485-489;491-496;498-505;507-511;513-517;519-523;525-530;533-537;539-543;545-551;553-557;559-563;565-571;573-577;579-584;586-591;593-597;599-604;606-611;613-618;620-624;626-631;633-638;640-644;646-652;654-659;662;699;708-714;716-723;725-732;734-741;743-752;754-761;763-767;769-774;776-781;815;824-828;830-833;836-838;840-842;844-847;849-853;856-865;867-871;874-878;880-883;885;898-900;902-903;905-908;911-916
+     */
+    public void testConstantsInstantiation() {
+        org.jboss.as.connector.subsystems.datasources.Constants constants = new org.jboss.as.connector.subsystems.datasources.Constants();
+        Assert.assertNotNull(constants);
+    }
+}
