@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
 import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 
 # -----------------------------
@@ -33,6 +32,11 @@ def split_test_paths(s: str) -> List[str]:
 def copy_file(src: Path, dst_dir: Path) -> None:
     dst_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst_dir / src.name)
+
+
+def clear_dir(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
 
 
 def copy_tree_filtered(src_dir: Path, dst_dir: Path, exts: Tuple[str, ...]) -> List[Path]:
@@ -229,6 +233,36 @@ def collect_manual_for_row(
 # -----------------------------
 # Main
 # -----------------------------
+INVENTORY_COLUMNS = [
+    "repo", "fqcn",
+    "generated_count", "manual_count",
+    "generated_files", "manual_files",
+    "manual_context_count", "manual_context_files",
+]
+
+
+def load_existing_inventory(inv_csv: Path) -> Dict[Tuple[str, str], Dict[str, str]]:
+    rows: Dict[Tuple[str, str], Dict[str, str]] = {}
+    if not inv_csv.is_file():
+        return rows
+    with inv_csv.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            repo = (row.get("repo") or "").strip()
+            fqcn = (row.get("fqcn") or "").strip()
+            if not repo or not fqcn:
+                continue
+            rows[(repo, fqcn)] = {
+                "generated_count": (row.get("generated_count") or "0").strip(),
+                "manual_count": (row.get("manual_count") or "0").strip(),
+                "generated_files": (row.get("generated_files") or "").strip(),
+                "manual_files": (row.get("manual_files") or "").strip(),
+                "manual_context_count": (row.get("manual_context_count") or "0").strip(),
+                "manual_context_files": (row.get("manual_context_files") or "").strip(),
+            }
+    return rows
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--map", required=True, help="cut_to_fatjar_map.csv (must include repo,fqcn,test_paths)")
@@ -236,6 +270,15 @@ def main() -> int:
     ap.add_argument("--evosuite-root", default="./result", help="Root containing generated-tests* folders")
     ap.add_argument("--out", default="./collected-tests", help="Output directory")
     ap.add_argument("--mode", choices=["both", "manual-only", "generated-only"], default="both")
+    ap.add_argument(
+        "--update-only",
+        choices=["none", "generated", "manual"],
+        default="none",
+        help=(
+            "Update only one collected test family while preserving the other inventory fields and files. "
+            "When set, the target family is refreshed per repo/fqcn."
+        ),
+    )
     ap.add_argument("--manual-context", choices=["none", "package", "module"], default="module",
                     help="Extra manual context to copy to help compilation, without polluting manual_files")
     args = ap.parse_args()
@@ -256,6 +299,14 @@ def main() -> int:
     warn_log = out_logs / "warnings.log"
     warn_log.write_text("", encoding="utf-8")
 
+    effective_mode = args.mode
+    if args.update_only == "generated":
+        effective_mode = "generated-only"
+    elif args.update_only == "manual":
+        effective_mode = "manual-only"
+
+    existing_inventory = load_existing_inventory(inv_csv) if args.update_only != "none" else {}
+
     required_cols = {"repo", "fqcn", "test_paths"}
     with map_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -267,12 +318,7 @@ def main() -> int:
         with inv_csv.open("w", encoding="utf-8", newline="") as outf:
             w = csv.writer(outf)
             # manual_files should contain ONLY primary manually-written tests
-            w.writerow([
-                "repo", "fqcn",
-                "generated_count", "manual_count",
-                "generated_files", "manual_files",
-                "manual_context_count", "manual_context_files",
-            ])
+            w.writerow(INVENTORY_COLUMNS)
 
             for row in reader:
                 repo = (row.get("repo") or "").strip()
@@ -283,10 +329,20 @@ def main() -> int:
                     continue
 
                 repo_safe = safe_repo(repo)
+                prior = existing_inventory.get((repo, fqcn), {
+                    "generated_count": "0",
+                    "manual_count": "0",
+                    "generated_files": "",
+                    "manual_files": "",
+                    "manual_context_count": "0",
+                    "manual_context_files": "",
+                })
 
                 # ---- generated ----
                 gen_sources: List[Path] = []
-                if args.mode in ("both", "generated-only"):
+                if effective_mode in ("both", "generated-only"):
+                    if args.update_only == "generated":
+                        clear_dir(out_gen / repo_safe / fqcn)
                     gen_sources = collect_generated_tests_for_fqcn(evo_root, fqcn)
                     dest_dir = out_gen / repo_safe / fqcn
                     for src in gen_sources:
@@ -294,9 +350,10 @@ def main() -> int:
 
                 # List only basenames
                 gen_names = sorted({p.name for p in gen_sources})
-                gen_count = len(gen_names)
+                gen_count_str = str(len(gen_names)) if effective_mode in ("both", "generated-only") else prior["generated_count"]
+                gen_names_str = ";".join(gen_names) if effective_mode in ("both", "generated-only") else prior["generated_files"]
 
-                if args.mode in ("both", "generated-only") and gen_count == 0:
+                if effective_mode in ("both", "generated-only") and not gen_names:
                     warn_log.write_text(warn_log.read_text(encoding="utf-8") +
                                         f"[WARN] no generated tests found for {repo}:{fqcn}\n", encoding="utf-8")
 
@@ -304,7 +361,9 @@ def main() -> int:
                 primary_names: List[str] = []
                 context_names: List[str] = []
 
-                if args.mode in ("both", "manual-only"):
+                if effective_mode in ("both", "manual-only"):
+                    if args.update_only == "manual":
+                        clear_dir(out_man / repo_safe / fqcn)
                     res = collect_manual_for_row(
                         repos_dir=repos_dir,
                         repo=repo,
@@ -350,11 +409,16 @@ def main() -> int:
                         warn_log.write_text(warn_log.read_text(encoding="utf-8") +
                                             f"[WARN] empty test_paths for {repo}:{fqcn}\n", encoding="utf-8")
 
+                primary_count_str = str(len(primary_names)) if effective_mode in ("both", "manual-only") else prior["manual_count"]
+                primary_names_str = ";".join(primary_names) if effective_mode in ("both", "manual-only") else prior["manual_files"]
+                context_count_str = str(len(context_names)) if effective_mode in ("both", "manual-only") else prior["manual_context_count"]
+                context_names_str = ";".join(context_names) if effective_mode in ("both", "manual-only") else prior["manual_context_files"]
+
                 w.writerow([
                     repo, fqcn,
-                    gen_count, len(primary_names),
-                    ";".join(gen_names), ";".join(primary_names),
-                    len(context_names), ";".join(context_names),
+                    gen_count_str, primary_count_str,
+                    gen_names_str, primary_names_str,
+                    context_count_str, context_names_str,
                 ])
 
     print(f"[DONE] Collected into: {out_dir}")
