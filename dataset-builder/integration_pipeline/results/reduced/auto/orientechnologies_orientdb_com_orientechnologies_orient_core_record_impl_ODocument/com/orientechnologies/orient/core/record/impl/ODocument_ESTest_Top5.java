@@ -61,6 +61,11 @@ public class ODocument_ESTest_Top5 extends ODocument_ESTest_scaffolding {
     }
 
     @Test(timeout = 4000)
+    public void testValidateEmbedded() throws Throwable {
+        ODocument.validateEmbedded(((OProperty) (null)), ((Object) (null)));
+    }
+
+    @Test(timeout = 4000)
     public void testFailsToCreateODocumentTaking2ArgumentsThrowsNoClassDefFoundError() throws Throwable {
         ODocument oDocument0 = null;
         try {
@@ -72,10 +77,5 @@ public class ODocument_ESTest_Top5 extends ODocument_ESTest_scaffolding {
             // 
             verifyException("com.orientechnologies.orient.core.db.document.ODatabaseDocumentAbstract", e);
         }
-    }
-
-    @Test(timeout = 4000)
-    public void testValidateEmbedded() throws Throwable {
-        ODocument.validateEmbedded(((OProperty) (null)), ((Object) (null)));
     }
 }

@@ -136,7 +136,7 @@ public class QuteProcessor_ESTest_Adopted_Top5 {
         Type[] paramTypes = new Type[0];
         TypeVariable[] typeParams = new TypeVariable[5];
         MethodInfo method = MethodInfo.create(classInfo, "k,rWgE)MEP8{else", params, paramTypes, ((Type) (returnType)), ((short) (-22428)), typeParams, paramTypes);
-        boolean accept = io.quarkus.qute.deployment.QuteProcessor.defaultFilter(method);
+        boolean accept = QuteProcessor.defaultFilter(method);
         assertFalse(accept);
     }
 
@@ -167,7 +167,7 @@ public class QuteProcessor_ESTest_Adopted_Top5 {
         Type[] paramTypes = new Type[1];
         TypeVariable[] typeParams = new TypeVariable[1];
         MethodInfo method = MethodInfo.create(classInfo, "IN78 +@gT{<^b8", params, paramTypes, ((Type) (returnType)), ((short) (3038)), typeParams, paramTypes);
-        io.quarkus.qute.deployment.QuteProcessor.ExistingValueResolvers resolvers = new io.quarkus.qute.deployment.QuteProcessor.ExistingValueResolvers();
+        QuteProcessor.ExistingValueResolvers resolvers = new QuteProcessor.ExistingValueResolvers();
         AlwaysFalsePredicate<Object> alwaysFalse = new AlwaysFalsePredicate<Object>();
         Predicate<DotName> predicate = Predicate.not(alwaysFalse);
         resolvers.add(method, ",+&w`b@4a)", predicate);
@@ -207,9 +207,9 @@ public class QuteProcessor_ESTest_Adopted_Top5 {
         HashMap<DotName, ClassInfo> classes = new HashMap<DotName, ClassInfo>();
         Index index = Index.create(annotations, ((Map<DotName, List<ClassInfo>>) (map)), ((Map<DotName, List<ClassInfo>>) (map)), ((Map<DotName, ClassInfo>) (classes)));
         Predicate<AnnotationTarget> filter = Predicate.isEqual(annotations);
-        io.quarkus.qute.deployment.QuteProcessor.FixedJavaMemberLookupConfig next = new io.quarkus.qute.deployment.QuteProcessor.FixedJavaMemberLookupConfig(index, filter, true);
+        QuteProcessor.FixedJavaMemberLookupConfig next = new QuteProcessor.FixedJavaMemberLookupConfig(index, filter, true);
         Boolean declaredOnly = Boolean.FALSE;
-        io.quarkus.qute.deployment.QuteProcessor.FirstPassJavaMemberLookupConfig firstPass = new io.quarkus.qute.deployment.QuteProcessor.FirstPassJavaMemberLookupConfig(next, filter, declaredOnly);
+        QuteProcessor.FirstPassJavaMemberLookupConfig firstPass = new QuteProcessor.FirstPassJavaMemberLookupConfig(next, filter, declaredOnly);
         firstPass.filter();
         assertTrue(next.declaredMembersOnly());
     }
@@ -230,7 +230,7 @@ public class QuteProcessor_ESTest_Adopted_Top5 {
         ClassInfo classInfo = Index.singleClass(objectClass);
         // Undeclared exception!
         try {
-            io.quarkus.qute.deployment.QuteProcessor.defaultFilter(classInfo);
+            QuteProcessor.defaultFilter(classInfo);
             fail("Expecting exception: IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             // 
@@ -256,7 +256,7 @@ public class QuteProcessor_ESTest_Adopted_Top5 {
         ClassInfo classInfo = Index.singleClass(objectClass);
         // Undeclared exception!
         try {
-            io.quarkus.qute.deployment.QuteProcessor.staticsFilter(classInfo);
+            QuteProcessor.staticsFilter(classInfo);
             fail("Expecting exception: IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             // 

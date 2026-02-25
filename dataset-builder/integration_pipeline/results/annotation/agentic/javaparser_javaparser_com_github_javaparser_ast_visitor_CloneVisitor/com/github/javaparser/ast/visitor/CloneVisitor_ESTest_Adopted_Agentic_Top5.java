@@ -65,8 +65,6 @@ class CloneVisitor_ESTest_Adopted_Agentic_Top5 {
         cu = null;
     }
 
-    @Test
-
     /**
      * This test added target-class coverage 2.60% for com.github.javaparser.ast.visitor.CloneVisitor (23/886 lines).
      * Delta details: +40 methods, +38 branches, +591 instructions.
@@ -86,6 +84,7 @@ class CloneVisitor_ESTest_Adopted_Agentic_Top5 {
      * </code></pre>
      * Other newly covered ranges to check: 610-615;919-925
      */
+    @Test
     void visitForStmt_withBlockCommentListContext_returnsEqualButNotSame() {
         CloneVisitor visitor = new CloneVisitor();
         ForStmt forStmt = new ForStmt();

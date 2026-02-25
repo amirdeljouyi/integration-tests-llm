@@ -120,36 +120,36 @@ import static org.junit.Assert.assertTrue;
 public class CloneVisitor_ESTest_Adopted_Top5 {
     @Test(timeout = 4000)
     public void visitCatchClause_withSelfContext_returnsEqualButNotSame() throws Throwable {
-        com.github.javaparser.ast.visitor.CloneVisitor visitor = new com.github.javaparser.ast.visitor.CloneVisitor();
+        CloneVisitor visitor = new CloneVisitor();
         CatchClause catchClause = new CatchClause();
-        com.github.javaparser.ast.visitor.Visitable cloned = visitor.visit(catchClause, ((Object) (catchClause)));
+        Visitable cloned = visitor.visit(catchClause, ((Object) (catchClause)));
         assertTrue(cloned.equals(((Object) (catchClause))));
         assertNotSame(cloned, catchClause);
     }
 
     @Test(timeout = 4000)
     public void visitAssignExpr_withSelfContext_returnsEqualButNotSame() throws Throwable {
-        com.github.javaparser.ast.visitor.CloneVisitor visitor = new com.github.javaparser.ast.visitor.CloneVisitor();
+        CloneVisitor visitor = new CloneVisitor();
         AssignExpr assign = new AssignExpr();
-        com.github.javaparser.ast.visitor.Visitable cloned = visitor.visit(assign, ((Object) (assign)));
+        Visitable cloned = visitor.visit(assign, ((Object) (assign)));
         assertNotSame(cloned, assign);
         assertTrue(cloned.equals(((Object) (assign))));
     }
 
     @Test(timeout = 4000)
     public void visitForStmt_withBlockCommentListContext_returnsEqualButNotSame() throws Throwable {
-        com.github.javaparser.ast.visitor.CloneVisitor visitor = new com.github.javaparser.ast.visitor.CloneVisitor();
+        CloneVisitor visitor = new CloneVisitor();
         ForStmt forStmt = new ForStmt();
         BlockComment[] commentArray = new BlockComment[0];
         NodeList<BlockComment> comments = new NodeList<BlockComment>(commentArray);
-        com.github.javaparser.ast.visitor.Visitable cloned = visitor.visit(forStmt, ((Object) (comments)));
+        Visitable cloned = visitor.visit(forStmt, ((Object) (comments)));
         assertNotSame(cloned, forStmt);
         assertTrue(cloned.equals(((Object) (forStmt))));
     }
 
     @Test(timeout = 4000)
     public void visitRecordDeclaration_withModifiersContext_returnsEqual() throws Throwable {
-        com.github.javaparser.ast.visitor.CloneVisitor visitor = new com.github.javaparser.ast.visitor.CloneVisitor();
+        CloneVisitor visitor = new CloneVisitor();
         Modifier[] modifiersArr = new Modifier[3];
         Modifier volatileModifier = Modifier.volatileModifier();
         modifiersArr[0] = volatileModifier;
@@ -157,16 +157,16 @@ public class CloneVisitor_ESTest_Adopted_Top5 {
         modifiersArr[2] = modifiersArr[0];
         NodeList<Modifier> modifiers = new NodeList<Modifier>(modifiersArr);
         RecordDeclaration record = new RecordDeclaration(modifiers, "RECEIVER_PARAMETER");
-        com.github.javaparser.ast.visitor.Visitable cloned = visitor.visit(record, ((Object) (modifiers)));
+        Visitable cloned = visitor.visit(record, ((Object) (modifiers)));
         assertTrue(cloned.equals(((Object) (record))));
     }
 
     @Test(timeout = 4000)
     public void visitForEachStmt_withObject_returnsClonedNode() throws Throwable {
-        com.github.javaparser.ast.visitor.CloneVisitor visitor = new com.github.javaparser.ast.visitor.CloneVisitor();
+        CloneVisitor visitor = new CloneVisitor();
         ForEachStmt forEach = new ForEachStmt();
         Object context = new Object();
-        com.github.javaparser.ast.visitor.Visitable cloned = visitor.visit(forEach, context);
+        Visitable cloned = visitor.visit(forEach, context);
         assertNotSame(cloned, forEach);
     }
 }

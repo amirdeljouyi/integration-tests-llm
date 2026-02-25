@@ -33,16 +33,14 @@ class FileConfiguration_ESTest_Adopted_Agentic_Top5 {
     @BeforeAll
     static void setUp() {
         System.setProperty("file.listener.enabled", "true");
-        org.apache.seata.config.ConfigurationCache.clear();
+        ConfigurationCache.clear();
     }
 
     @AfterAll
     static void tearDown() {
-        org.apache.seata.config.ConfigurationCache.clear();
+        ConfigurationCache.clear();
         System.setProperty("file.listener.enabled", "true");
     }
-
-    @Test
 
     /**
      * This test added target-class coverage 31.58% for io.seata.config.FileConfiguration (6/19 lines).
@@ -56,17 +54,18 @@ class FileConfiguration_ESTest_Adopted_Agentic_Top5 {
      * </code></pre>
      * Other newly covered ranges to check: 81;86;91
      */
+    @Test
     void testPublishChangeEventsAndPutConfigsViaWrappedConfiguration() {
         org.apache.seata.config.FileConfiguration apacheFileConfig = new org.apache.seata.config.FileConfiguration(".yK>", true);
         io.seata.config.FileConfiguration delegatingFileConfig = new io.seata.config.FileConfiguration(apacheFileConfig);
-        org.apache.seata.config.ConfigurationCache configurationCache = org.apache.seata.config.ConfigurationCache.getInstance();
+        ConfigurationCache configurationCache = ConfigurationCache.getInstance();
         configurationCache.onShutDown();
         apacheFileConfig.getLong("iaOs!", -1405L, 1000L);
-        org.apache.seata.config.ConfigurationChangeType initialChangeType = ConfigurationChangeType.MODIFY;
+        ConfigurationChangeType initialChangeType = ConfigurationChangeType.MODIFY;
         org.apache.seata.config.ConfigurationChangeEvent changeEvent = new org.apache.seata.config.ConfigurationChangeEvent(".yK>", "-#4N?8/BKLTG1Is/y", "", "2i,+EX.Y8", initialChangeType);
-        org.apache.seata.config.ConfigurationChangeType addChangeType = ConfigurationChangeType.ADD;
+        ConfigurationChangeType addChangeType = ConfigurationChangeType.ADD;
         changeEvent.setChangeType(addChangeType);
-        org.apache.seata.config.ConfigurationChangeEvent changeEventAfterUpdate = changeEvent.setChangeType(initialChangeType);
+        ConfigurationChangeEvent changeEventAfterUpdate = changeEvent.setChangeType(initialChangeType);
         configurationCache.onChangeEvent(changeEventAfterUpdate);
         apacheFileConfig.getInt("yR[!#", -304, 0L);
         delegatingFileConfig.getInt("Dg2lQqjtt7Se=Gt");
@@ -155,7 +154,7 @@ class FileConfiguration_ESTest_Adopted_Agentic_Top5 {
      */
     @Test
     void testConstructingFromAnotherConfigurationKeepsTypeName() {
-        org.apache.seata.config.FileConfiguration apacheFileConfig = new org.apache.seata.config.FileConfiguration();
+        FileConfiguration apacheFileConfig = new FileConfiguration();
         io.seata.config.FileConfiguration wrappedFileConfig = new io.seata.config.FileConfiguration(apacheFileConfig);
         String typeName = wrappedFileConfig.getTypeName();
         Assertions.assertEquals("file", typeName);

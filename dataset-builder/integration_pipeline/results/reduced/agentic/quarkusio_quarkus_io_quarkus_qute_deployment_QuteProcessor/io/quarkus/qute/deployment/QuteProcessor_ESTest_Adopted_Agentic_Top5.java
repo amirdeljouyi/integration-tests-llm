@@ -69,31 +69,13 @@ import io.quarkus.qute.runtime.QuteRecorder;
 
 public class QuteProcessor_ESTest_Adopted_Agentic_Top5 {
     @Test
-
-    /**
-     * This test added coverage 17.09% (295/1726 added lines among kept tests).
-     * Delta details: +45 methods, +54 branches, +1193 instructions.
-     * Full version of the covered block is here: <a href="https://github.com/quarkusio/quarkus/blob/main/independent-projects/arc/processor/src/main/java/io/quarkus/arc/processor/DotNames.java#L81-L81">DotNames.java (lines 81-81)</a>
-     * Covered Lines:
-     * <pre><code>
-     * <span style="background-color:#fff3b0;">    private static final ComputingCache&lt;String, DotName&gt; NAMES = new ComputingCache&lt;&gt;(DotNames::create);</span>
-     * </code></pre>
-     * Full version of the covered block is here: <a href="https://github.com/quarkusio/quarkus/blob/main/extensions/qute/deployment/src/main/java/io/quarkus/qute/deployment/QuteProcessor.java#L3025-L3027">QuteProcessor$MatchResult.java (lines 3025-3027)</a>
-     * Covered Lines:
-     * <pre><code>
-     * <span style="background-color:#fff3b0;">        MatchResult(AssignabilityCheck assignabilityCheck) {</span>
-     * <span style="background-color:#fff3b0;">            this.assignabilityCheck = assignabilityCheck;</span>
-     * <span style="background-color:#fff3b0;">        }</span>
-     * </code></pre>
-     * Additional covered classes omitted: 13
-     */
     public void processLoopElementHintWithNullExpressionThrowsNPE() {
-        io.quarkus.qute.deployment.QuteProcessor.MatchResult matchResult = new io.quarkus.qute.deployment.QuteProcessor.MatchResult(((io.quarkus.qute.deployment.Types.AssignabilityCheck) (null)));
+        QuteProcessor.MatchResult matchResult = new QuteProcessor.MatchResult(((Types.AssignabilityCheck) (null)));
         TypeVariable variable = TypeVariable.create("8LiOQgPN+)^-");
         matchResult.setValues(((ClassInfo) (null)), variable);
-        Class<io.quarkus.qute.deployment.IncorrectExpressionBuildItem> incorrectClass = io.quarkus.qute.deployment.IncorrectExpressionBuildItem.class;
-        BuildProducerImpl<io.quarkus.qute.deployment.IncorrectExpressionBuildItem> incorrectProducer = new BuildProducerImpl<>(incorrectClass, ((BuildContext) (null)));
-        NullPointerException exception = assertThrows(NullPointerException.class, () -> io.quarkus.qute.deployment.QuteProcessor.processLoopElementHint(matchResult, ((IndexView) (null)), ((Expression) (null)), incorrectProducer));
+        Class<IncorrectExpressionBuildItem> incorrectClass = IncorrectExpressionBuildItem.class;
+        BuildProducerImpl<IncorrectExpressionBuildItem> incorrectProducer = new BuildProducerImpl<>(incorrectClass, ((BuildContext) (null)));
+        NullPointerException exception = assertThrows(NullPointerException.class, () -> QuteProcessor.processLoopElementHint(matchResult, ((IndexView) (null)), ((Expression) (null)), incorrectProducer));
         boolean found = false;
         for (StackTraceElement element : exception.getStackTrace()) {
             if (element.getClassName().equals("io.quarkus.qute.deployment.QuteProcessor")) {
@@ -110,7 +92,7 @@ public class QuteProcessor_ESTest_Adopted_Agentic_Top5 {
         LinkedHashSet<AnnotationInstance> qualifiers = new LinkedHashSet<>();
         InjectionPointInfo.TypeAndQualifiers tq = new InjectionPointInfo.TypeAndQualifiers(characterType, qualifiers);
         InjectionPointInfo ip = InjectionPointInfo.fromSyntheticInjectionPoint(tq);
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> io.quarkus.qute.deployment.QuteProcessor.getName(ip));
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> QuteProcessor.getName(ip));
         boolean found = false;
         for (StackTraceElement element : exception.getStackTrace()) {
             if (element.getClassName().equals("io.quarkus.qute.deployment.QuteProcessor")) {
@@ -123,20 +105,20 @@ public class QuteProcessor_ESTest_Adopted_Agentic_Top5 {
 
     @Test
     public void initializeWithValidParamsButNonProxyRecorderThrowsIAE() {
-        io.quarkus.qute.deployment.QuteProcessor processor = new io.quarkus.qute.deployment.QuteProcessor();
+        QuteProcessor processor = new QuteProcessor();
         Class<SyntheticBeanBuildItem> syntheticClass = SyntheticBeanBuildItem.class;
         BuildContext buildContext = mock(BuildContext.class);
         BuildProducerImpl<SyntheticBeanBuildItem> syntheticProducer = new BuildProducerImpl<>(syntheticClass, buildContext);
         QuteRecorder recorder = new QuteRecorder();
-        Stack<io.quarkus.qute.deployment.TemplatePathBuildItem> templatePaths = new Stack<>();
-        io.quarkus.qute.deployment.EffectiveTemplatePathsBuildItem effectivePaths = new io.quarkus.qute.deployment.EffectiveTemplatePathsBuildItem(templatePaths);
+        Stack<TemplatePathBuildItem> templatePaths = new Stack<>();
+        EffectiveTemplatePathsBuildItem effectivePaths = new EffectiveTemplatePathsBuildItem(templatePaths);
         HashMap<String, List<String>> variants = new HashMap<>();
-        io.quarkus.qute.deployment.TemplateVariantsBuildItem templateVariants = new io.quarkus.qute.deployment.TemplateVariantsBuildItem(variants);
-        Optional<io.quarkus.qute.deployment.TemplateVariantsBuildItem> optionalVariants = Optional.of(templateVariants);
-        LinkedList<io.quarkus.qute.deployment.TemplateRootBuildItem> roots = new LinkedList<>();
-        io.quarkus.qute.deployment.TemplateRootsBuildItem templateRoots = processor.collectTemplateRoots(roots);
-        Stack<io.quarkus.qute.deployment.TemplatePathExcludeBuildItem> excludes = new Stack<>();
-        io.quarkus.qute.deployment.TemplatePathExcludeBuildItem exclude = new io.quarkus.qute.deployment.TemplatePathExcludeBuildItem(((String) (null)));
+        TemplateVariantsBuildItem templateVariants = new TemplateVariantsBuildItem(variants);
+        Optional<TemplateVariantsBuildItem> optionalVariants = Optional.of(templateVariants);
+        LinkedList<TemplateRootBuildItem> roots = new LinkedList<>();
+        TemplateRootsBuildItem templateRoots = processor.collectTemplateRoots(roots);
+        Stack<TemplatePathExcludeBuildItem> excludes = new Stack<>();
+        TemplatePathExcludeBuildItem exclude = new TemplatePathExcludeBuildItem(((String) (null)));
         excludes.add(exclude);
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> processor.initialize(syntheticProducer, recorder, effectivePaths, optionalVariants, templateRoots, excludes));
         boolean found = false;
@@ -156,36 +138,36 @@ public class QuteProcessor_ESTest_Adopted_Agentic_Top5 {
         PrimitiveType doublePrimitive = PrimitiveType.DOUBLE;
         candidates.add(doublePrimitive);
         Function<Type, Type> extractor = QuteProcessor.MAP_ENTRY_EXTRACT_FUN;
-        Type result = io.quarkus.qute.deployment.QuteProcessor.extractMatchType(candidates, targetName, extractor);
+        Type result = QuteProcessor.extractMatchType(candidates, targetName, extractor);
         assertNull(result);
     }
 
     @Test
     public void validateExpressionsWithNullBeanDeploymentCollectionsThrowsNPE() {
-        io.quarkus.qute.deployment.QuteProcessor processor = new io.quarkus.qute.deployment.QuteProcessor();
-        AlwaysFalsePredicate<io.quarkus.qute.deployment.TypeCheckExcludeBuildItem.TypeCheck> alwaysFalse = new AlwaysFalsePredicate<>();
-        io.quarkus.qute.deployment.TypeCheckExcludeBuildItem excludeItem = new io.quarkus.qute.deployment.TypeCheckExcludeBuildItem(alwaysFalse, true);
-        List<io.quarkus.qute.deployment.TypeCheckExcludeBuildItem> excludes = List.of(excludeItem, excludeItem, excludeItem, excludeItem, excludeItem);
-        Class<io.quarkus.qute.deployment.IncorrectExpressionBuildItem> incorrectClass = io.quarkus.qute.deployment.IncorrectExpressionBuildItem.class;
+        QuteProcessor processor = new QuteProcessor();
+        AlwaysFalsePredicate<TypeCheckExcludeBuildItem.TypeCheck> alwaysFalse = new AlwaysFalsePredicate<>();
+        TypeCheckExcludeBuildItem excludeItem = new TypeCheckExcludeBuildItem(alwaysFalse, true);
+        List<TypeCheckExcludeBuildItem> excludes = List.of(excludeItem, excludeItem, excludeItem, excludeItem, excludeItem);
+        Class<IncorrectExpressionBuildItem> incorrectClass = IncorrectExpressionBuildItem.class;
         BuildContext buildContext = mock(BuildContext.class);
-        BuildProducerImpl<io.quarkus.qute.deployment.IncorrectExpressionBuildItem> incorrectProducer = new BuildProducerImpl<>(incorrectClass, buildContext);
+        BuildProducerImpl<IncorrectExpressionBuildItem> incorrectProducer = new BuildProducerImpl<>(incorrectClass, buildContext);
         BeanDeployment beanDeployment = mock(BeanDeployment.class);
         doReturn(((BeanResolver) (null))).when(beanDeployment).getBeanResolver();
         doReturn(((Collection<?>) (null))).when(beanDeployment).getBeans();
         doReturn(((Collection<?>) (null))).when(beanDeployment).getInjectionPoints();
         doReturn(((Collection<?>) (null))).when(beanDeployment).getObservers();
         SynthesisFinishedBuildItem synthesisFinished = new SynthesisFinishedBuildItem(beanDeployment);
-        ArrayList<io.quarkus.qute.deployment.CheckedTemplateBuildItem> checkedTemplates = new ArrayList<>();
-        Stack<io.quarkus.qute.deployment.TemplateDataBuildItem> templateDataItems = new Stack<>();
-        io.quarkus.qute.deployment.TemplatesAnalysisBuildItem analyses = new io.quarkus.qute.deployment.TemplatesAnalysisBuildItem(((List<TemplateAnalysis>) (null)));
+        ArrayList<CheckedTemplateBuildItem> checkedTemplates = new ArrayList<>();
+        Stack<TemplateDataBuildItem> templateDataItems = new Stack<>();
+        TemplatesAnalysisBuildItem analyses = new TemplatesAnalysisBuildItem(((List<TemplateAnalysis>) (null)));
         LinkedHashSet<DotName> beanExclusions = new LinkedHashSet<>();
         BeanArchiveIndexBuildItem beanArchiveIndex = new BeanArchiveIndexBuildItem(((IndexView) (null)), ((IndexView) (null)), beanExclusions);
-        ArrayList<io.quarkus.qute.deployment.TemplateExtensionMethodBuildItem> extensionMethods = new ArrayList<>();
-        Class<io.quarkus.qute.deployment.ImplicitValueResolverBuildItem> implicitClass = io.quarkus.qute.deployment.ImplicitValueResolverBuildItem.class;
+        ArrayList<TemplateExtensionMethodBuildItem> extensionMethods = new ArrayList<>();
+        Class<ImplicitValueResolverBuildItem> implicitClass = ImplicitValueResolverBuildItem.class;
         BuildContext buildContext1 = mock(BuildContext.class);
-        BuildProducerImpl<io.quarkus.qute.deployment.ImplicitValueResolverBuildItem> implicitProducer = new BuildProducerImpl<>(implicitClass, buildContext1);
+        BuildProducerImpl<ImplicitValueResolverBuildItem> implicitProducer = new BuildProducerImpl<>(implicitClass, buildContext1);
         NativeConfig nativeConfig = mock(NativeConfig.class);
-        NullPointerException exception = assertThrows(NullPointerException.class, () -> processor.validateExpressions(analyses, beanArchiveIndex, extensionMethods, excludes, incorrectProducer, implicitProducer, ((BuildProducer<io.quarkus.qute.deployment.TemplateExpressionMatchesBuildItem>) (null)), synthesisFinished, checkedTemplates, templateDataItems, ((QuteConfig) (null)), nativeConfig, ((List<io.quarkus.qute.deployment.TemplateGlobalBuildItem>) (null))));
+        NullPointerException exception = assertThrows(NullPointerException.class, () -> processor.validateExpressions(analyses, beanArchiveIndex, extensionMethods, excludes, incorrectProducer, implicitProducer, ((BuildProducer<TemplateExpressionMatchesBuildItem>) (null)), synthesisFinished, checkedTemplates, templateDataItems, ((QuteConfig) (null)), nativeConfig, ((List<TemplateGlobalBuildItem>) (null))));
         boolean found = false;
         for (StackTraceElement element : exception.getStackTrace()) {
             if (element.getClassName().equals("java.util.Objects")) {

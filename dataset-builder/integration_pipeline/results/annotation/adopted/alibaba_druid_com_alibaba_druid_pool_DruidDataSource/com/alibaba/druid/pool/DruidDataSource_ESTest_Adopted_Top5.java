@@ -30,7 +30,7 @@ public class DruidDataSource_ESTest_Adopted_Top5 {
      */
     @Test(timeout = 4000)
     public void testFill_withCapacity_throwsSQLException() throws Throwable {
-        com.alibaba.druid.pool.DruidDataSource dataSource = new com.alibaba.druid.pool.DruidDataSource();
+        DruidDataSource dataSource = new DruidDataSource();
         try {
             dataSource.fill(72);
             fail("Expecting exception: SQLException");
@@ -56,7 +56,7 @@ public class DruidDataSource_ESTest_Adopted_Top5 {
      */
     @Test(timeout = 4000)
     public void testFill_withoutCapacity_throwsSQLException() throws Throwable {
-        com.alibaba.druid.pool.DruidDataSource dataSource = new com.alibaba.druid.pool.DruidDataSource();
+        DruidDataSource dataSource = new DruidDataSource();
         dataSource.setLoadSpifilterSkip(true);
         try {
             dataSource.fill();
@@ -87,7 +87,7 @@ public class DruidDataSource_ESTest_Adopted_Top5 {
      */
     @Test(timeout = 4000)
     public void testGetStatValueAndReset_withoutStat_throwsNPE() throws Throwable {
-        com.alibaba.druid.pool.DruidDataSource dataSource = new com.alibaba.druid.pool.DruidDataSource();
+        DruidDataSource dataSource = new DruidDataSource();
         // Undeclared exception!
         try {
             dataSource.getStatValueAndReset();
@@ -118,7 +118,7 @@ public class DruidDataSource_ESTest_Adopted_Top5 {
      */
     @Test(timeout = 4000)
     public void testGetStatData_withoutStat_throwsNPE() throws Throwable {
-        com.alibaba.druid.pool.DruidDataSource dataSource = new com.alibaba.druid.pool.DruidDataSource(false);
+        DruidDataSource dataSource = new DruidDataSource(false);
         // Undeclared exception!
         try {
             dataSource.getStatData();
@@ -149,7 +149,7 @@ public class DruidDataSource_ESTest_Adopted_Top5 {
      */
     @Test(timeout = 4000)
     public void testInitCheck_defaultInvocation() throws Throwable {
-        com.alibaba.druid.pool.DruidDataSource dataSource = new com.alibaba.druid.pool.DruidDataSource(true);
+        DruidDataSource dataSource = new DruidDataSource(true);
         dataSource.initCheck();
         assertTrue(dataSource.isResetStatEnable());
         assertTrue(dataSource.isEnable());

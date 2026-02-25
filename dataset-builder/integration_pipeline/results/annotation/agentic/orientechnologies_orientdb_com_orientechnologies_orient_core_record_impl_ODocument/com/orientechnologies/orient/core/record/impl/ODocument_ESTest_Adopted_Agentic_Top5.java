@@ -12,8 +12,6 @@ public class ODocument_ESTest_Adopted_Agentic_Top5 {
     // private static final String dbName = ODocumentTest.class.getSimpleName();
     private static final String defaultDbAdminCredentials = "admin";
 
-    @org.junit.Test
-
     /**
      * This test added target-class coverage 1.24% for com.orientechnologies.orient.core.record.impl.ODocument (21/1700 lines).
      * Delta details: +2 methods, +5 branches, +117 instructions.
@@ -27,10 +25,11 @@ public class ODocument_ESTest_Adopted_Agentic_Top5 {
      * </code></pre>
      * Other newly covered ranges to check: 1141;1143;1145;1147;1149-1151;1153-1154;1163;1165-1166;1168-1169;1171;3596;3599
      */
+    @org.junit.Test
     public void testCopyToCopiesEmptyFieldsTypesAndOwners() throws Exception {
-        com.orientechnologies.orient.core.record.impl.ODocument doc1 = new com.orientechnologies.orient.core.record.impl.ODocument();
+        ODocument doc1 = new ODocument();
         com.orientechnologies.orient.core.record.impl.ODocument doc2 = new com.orientechnologies.orient.core.record.impl.ODocument().field("integer2", 123).field("string", "OrientDB").field("a", 123.3).setFieldType("integer", com.orientechnologies.orient.core.metadata.schema.OType.INTEGER).setFieldType("string", com.orientechnologies.orient.core.metadata.schema.OType.STRING).setFieldType("binary", com.orientechnologies.orient.core.metadata.schema.OType.BINARY);
-        com.orientechnologies.orient.core.record.impl.ODocumentInternal.addOwner(doc2, new com.orientechnologies.orient.core.record.impl.ODocument());
+        ODocumentInternal.addOwner(doc2, new ODocument());
         assertEquals(doc2.<Object>field("integer2"), 123);
         assertEquals(doc2.field("string"), "OrientDB");
         // assertEquals(doc2.field("a"), 123.3);
@@ -57,10 +56,10 @@ public class ODocument_ESTest_Adopted_Agentic_Top5 {
     public void validateLinkCollection_withNullProperty_throwsNPE() {
         java.util.TreeMap<java.util.LinkedHashMap<Object, Object>, Object> treeMap = new java.util.TreeMap<java.util.LinkedHashMap<Object, Object>, Object>();
         java.util.Collection<Object> values = treeMap.values();
-        com.orientechnologies.orient.core.record.impl.ODocumentEntry entry = new com.orientechnologies.orient.core.record.impl.ODocumentEntry();
-        com.orientechnologies.orient.core.record.impl.ODocumentEntry clonedEntry = entry.clone();
+        ODocumentEntry entry = new ODocumentEntry();
+        ODocumentEntry clonedEntry = entry.clone();
         try {
-            com.orientechnologies.orient.core.record.impl.ODocument.validateLinkCollection(((com.orientechnologies.orient.core.metadata.schema.OProperty) (null)), values, clonedEntry);
+            ODocument.validateLinkCollection(((com.orientechnologies.orient.core.metadata.schema.OProperty) (null)), values, clonedEntry);
             fail("Expecting exception: NullPointerException");
         } catch (NullPointerException e) {
             boolean found = false;
@@ -90,7 +89,7 @@ public class ODocument_ESTest_Adopted_Agentic_Top5 {
     public void createDocumentFromByteArray_throwsNoClassDefFoundError() {
         byte[] content = new byte[2];
         try {
-            new com.orientechnologies.orient.core.record.impl.ODocument(content);
+            new ODocument(content);
             fail("Expecting exception: NoClassDefFoundError");
         } catch (NoClassDefFoundError e) {
             boolean found = false;
@@ -119,7 +118,7 @@ public class ODocument_ESTest_Adopted_Agentic_Top5 {
     public void validateEmbedded_withNullPropertyAndNonNullValue_throwsNPE() {
         Object nonNullValue = new Object();
         try {
-            com.orientechnologies.orient.core.record.impl.ODocument.validateEmbedded(((com.orientechnologies.orient.core.metadata.schema.OProperty) (null)), nonNullValue);
+            ODocument.validateEmbedded(((com.orientechnologies.orient.core.metadata.schema.OProperty) (null)), nonNullValue);
             fail("Expecting exception: NullPointerException");
         } catch (NullPointerException e) {
             boolean found = false;

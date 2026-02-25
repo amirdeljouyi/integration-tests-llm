@@ -33,12 +33,12 @@ class FileConfiguration_ESTest_Adopted_Top5 {
     @BeforeAll
     static void setUp() {
         System.setProperty("file.listener.enabled", "true");
-        org.apache.seata.config.ConfigurationCache.clear();
+        ConfigurationCache.clear();
     }
 
     @AfterAll
     static void tearDown() {
-        org.apache.seata.config.ConfigurationCache.clear();
+        ConfigurationCache.clear();
         System.setProperty("file.listener.enabled", "true");
     }
 
@@ -49,12 +49,12 @@ class FileConfiguration_ESTest_Adopted_Top5 {
     @Test
     void evo_putConfigAndCacheListenerFlow() {
         org.apache.seata.config.FileConfiguration baseFileConfig = new org.apache.seata.config.FileConfiguration(".yK>", true);
-        org.apache.seata.config.ConfigurationCache configCache = org.apache.seata.config.ConfigurationCache.getInstance();
+        ConfigurationCache configCache = ConfigurationCache.getInstance();
         configCache.onShutDown();
         baseFileConfig.getLong("iaOs!", -1405L, 1000L);
         org.apache.seata.config.ConfigurationChangeEvent changeEvent = new org.apache.seata.config.ConfigurationChangeEvent(".yK>", "-#4N?8/BKLTG1Is/y", "", "2i,+EX.Y8", ConfigurationChangeType.ADD);
         changeEvent.setChangeType(ConfigurationChangeType.ADD);
-        org.apache.seata.config.ConfigurationChangeEvent updatedEvent = changeEvent.setChangeType(ConfigurationChangeType.ADD);
+        ConfigurationChangeEvent updatedEvent = changeEvent.setChangeType(ConfigurationChangeType.ADD);
         configCache.onChangeEvent(updatedEvent);
         baseFileConfig.getInt("yR[!#", -304, 0L);
         baseFileConfig.getInt("Dg2lQqjtt7Se=Gt");

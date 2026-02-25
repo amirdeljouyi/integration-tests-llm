@@ -66,23 +66,6 @@ class CloneVisitor_ESTest_Adopted_Agentic_Top5 {
     }
 
     @Test
-
-    /**
-     * This test added coverage 5.45% (133/2440 added lines among kept tests).
-     * Delta details: +40 methods, +38 branches, +591 instructions.
-     * Full version of the covered block is here: <a href="https://github.com/javaparser/javaparser/blob/main/javaparser-symbol-solver-testing/src/test/test_sourcecode/javaparser_src/proper_source/com/github/javaparser/ast/stmt/ForStmt.java#L82-L83">ForStmt.java (lines 82-83)</a>
-     * Covered Lines:
-     * <pre><code>
-     * <span style="background-color:#fff3b0;"></span>
-     * <span style="background-color:#fff3b0;">	public List&lt;Expression&gt; getInit() {</span>
-     * </code></pre>
-     * Full version of the covered block is here: <a href="https://github.com/javaparser/javaparser/blob/main/javaparser-symbol-solver-testing/src/test/test_sourcecode/javaparser_src/proper_source/com/github/javaparser/ast/visitor/EqualsVisitor.java#L43-L43">EqualsVisitor.java (lines 43-43)</a>
-     * Covered Lines:
-     * <pre><code>
-     * <span style="background-color:#fff3b0;">import com.github.javaparser.ast.body.MethodDeclaration;</span>
-     * </code></pre>
-     * Additional covered classes omitted: 6
-     */
     void visitForStmt_withBlockCommentListContext_returnsEqualButNotSame() {
         CloneVisitor visitor = new CloneVisitor();
         ForStmt forStmt = new ForStmt();

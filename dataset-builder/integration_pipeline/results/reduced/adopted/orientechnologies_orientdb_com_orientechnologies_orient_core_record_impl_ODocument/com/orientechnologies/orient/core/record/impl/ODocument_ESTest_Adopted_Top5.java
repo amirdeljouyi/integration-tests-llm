@@ -18,11 +18,11 @@ public class ODocument_ESTest_Adopted_Top5 {
     public void validateLinkCollection_withNullProperty_throwsNPE() throws Throwable {
         TreeMap<LinkedHashMap<Object, Object>, Object> treeMap = new TreeMap<LinkedHashMap<Object, Object>, Object>();
         Collection<Object> values = treeMap.values();
-        com.orientechnologies.orient.core.record.impl.ODocumentEntry entry = new com.orientechnologies.orient.core.record.impl.ODocumentEntry();
-        com.orientechnologies.orient.core.record.impl.ODocumentEntry clonedEntry = entry.clone();
+        ODocumentEntry entry = new ODocumentEntry();
+        ODocumentEntry clonedEntry = entry.clone();
         // Undeclared exception!
         try {
-            com.orientechnologies.orient.core.record.impl.ODocument.validateLinkCollection(((OProperty) (null)), values, clonedEntry);
+            ODocument.validateLinkCollection(((OProperty) (null)), values, clonedEntry);
             fail("Expecting exception: NullPointerException");
         } catch (NullPointerException e) {
             // 
@@ -38,9 +38,9 @@ public class ODocument_ESTest_Adopted_Top5 {
         buffer[7] = ((byte) (59));
         ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(buffer);
         DataInputStream dataInputStream = new DataInputStream(byteArrayInputStream);
-        com.orientechnologies.orient.core.record.impl.ODocument document = null;
+        ODocument document = null;
         try {
-            document = new com.orientechnologies.orient.core.record.impl.ODocument(dataInputStream);
+            document = new ODocument(dataInputStream);
             fail("Expecting exception: NoClassDefFoundError");
         } catch (NoClassDefFoundError e) {
             // 
@@ -53,9 +53,9 @@ public class ODocument_ESTest_Adopted_Top5 {
     @Test(timeout = 4000)
     public void createDocumentFromByteArray_throwsNoClassDefFoundError() throws Throwable {
         byte[] content = new byte[2];
-        com.orientechnologies.orient.core.record.impl.ODocument document = null;
+        ODocument document = null;
         try {
-            document = new com.orientechnologies.orient.core.record.impl.ODocument(content);
+            document = new ODocument(content);
             fail("Expecting exception: NoClassDefFoundError");
         } catch (NoClassDefFoundError e) {
             // 
@@ -70,7 +70,7 @@ public class ODocument_ESTest_Adopted_Top5 {
         Object nonNullValue = new Object();
         // Undeclared exception!
         try {
-            com.orientechnologies.orient.core.record.impl.ODocument.validateEmbedded(((OProperty) (null)), nonNullValue);
+            ODocument.validateEmbedded(((OProperty) (null)), nonNullValue);
             fail("Expecting exception: NullPointerException");
         } catch (NullPointerException e) {
             // 

@@ -19,21 +19,21 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 public class OMatchStatement_ESTest_Adopted_Top5 {
     // Adapted and merged parser syntax tests from IGT
-    private com.orientechnologies.orient.core.sql.parser.SimpleNode checkRightSyntax(String query) {
-        com.orientechnologies.orient.core.sql.parser.SimpleNode result = checkSyntax(query, true);
+    private SimpleNode checkRightSyntax(String query) {
+        SimpleNode result = checkSyntax(query, true);
         StringBuilder builder = new StringBuilder();
         result.toString(null, builder);
         return checkSyntax(builder.toString(), true);
     }
 
-    private com.orientechnologies.orient.core.sql.parser.SimpleNode checkWrongSyntax(String query) {
+    private SimpleNode checkWrongSyntax(String query) {
         return checkSyntax(query, false);
     }
 
-    private com.orientechnologies.orient.core.sql.parser.SimpleNode checkSyntax(String query, boolean isCorrect) {
-        com.orientechnologies.orient.core.sql.parser.OrientSql osql = getParserFor(query);
+    private SimpleNode checkSyntax(String query, boolean isCorrect) {
+        OrientSql osql = getParserFor(query);
         try {
-            com.orientechnologies.orient.core.sql.parser.SimpleNode result = osql.parse();
+            SimpleNode result = osql.parse();
             if (!isCorrect) {
                 fail();
             }
@@ -47,15 +47,15 @@ public class OMatchStatement_ESTest_Adopted_Top5 {
         return null;
     }
 
-    private com.orientechnologies.orient.core.sql.parser.OrientSql getParserFor(String string) {
+    private OrientSql getParserFor(String string) {
         InputStream is = new ByteArrayInputStream(string.getBytes());
-        return new com.orientechnologies.orient.core.sql.parser.OrientSql(is);
+        return new OrientSql(is);
     }
 
     @Test(timeout = 4000)
     public void matchContext_toDoc_throwsNoClassDefFoundError() throws Throwable {
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement matchStatement = new com.orientechnologies.orient.core.sql.parser.OMatchStatement();
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement.MatchContext matchContext = matchStatement.new com.orientechnologies.orient.core.sql.parser.MatchContext();
+        OMatchStatement matchStatement = new OMatchStatement();
+        OMatchStatement.MatchContext matchContext = matchStatement.new MatchContext();
         try {
             matchContext.toDoc();
             fail("Expecting exception: NoClassDefFoundError");
@@ -66,17 +66,17 @@ public class OMatchStatement_ESTest_Adopted_Top5 {
 
     @Test(timeout = 4000)
     public void copy_preservesReturnItems() throws Throwable {
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement matchStatement = new com.orientechnologies.orient.core.sql.parser.OMatchStatement();
-        com.orientechnologies.orient.core.sql.parser.OExpression expression = new com.orientechnologies.orient.core.sql.parser.OExpression(((com.orientechnologies.orient.core.sql.parser.OIdentifier) (null)));
+        OMatchStatement matchStatement = new OMatchStatement();
+        OExpression expression = new OExpression(((OIdentifier) (null)));
         matchStatement.addReturnItem(expression);
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement copiedStatement = matchStatement.copy();
+        OMatchStatement copiedStatement = matchStatement.copy();
         assertFalse(copiedStatement.isReturnDistinct());
         assertTrue(copiedStatement.equals(((Object) (matchStatement))));
     }
 
     @Test(timeout = 4000)
     public void createExecutionPlan_throwsNPE_whenContextNull() throws Throwable {
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement matchStatement = new com.orientechnologies.orient.core.sql.parser.OMatchStatement();
+        OMatchStatement matchStatement = new OMatchStatement();
         try {
             matchStatement.createExecutionPlan(((OCommandContext) (null)));
             fail("Expecting exception: NullPointerException");
@@ -87,21 +87,21 @@ public class OMatchStatement_ESTest_Adopted_Top5 {
 
     @Test(timeout = 4000)
     public void copy_preservesReturnNestedProjections_fromImmutableList() throws Throwable {
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement matchStatement = new com.orientechnologies.orient.core.sql.parser.OMatchStatement();
-        com.orientechnologies.orient.core.sql.parser.ONestedProjection nestedProjection = new com.orientechnologies.orient.core.sql.parser.ONestedProjection(-1725222855);
-        List<com.orientechnologies.orient.core.sql.parser.ONestedProjection> nestedProjections = List.of(nestedProjection);
+        OMatchStatement matchStatement = new OMatchStatement();
+        ONestedProjection nestedProjection = new ONestedProjection(-1725222855);
+        List<ONestedProjection> nestedProjections = List.of(nestedProjection);
         matchStatement.setReturnNestedProjections(nestedProjections);
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement copiedStatement = matchStatement.copy();
+        OMatchStatement copiedStatement = matchStatement.copy();
         assertFalse(copiedStatement.isReturnDistinct());
         assertTrue(copiedStatement.equals(((Object) (matchStatement))));
     }
 
     @Test(timeout = 4000)
     public void copy_preservesUnwind() throws Throwable {
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement matchStatement = new com.orientechnologies.orient.core.sql.parser.OMatchStatement();
-        com.orientechnologies.orient.core.sql.parser.OUnwind unwind = new com.orientechnologies.orient.core.sql.parser.OUnwind(((com.orientechnologies.orient.core.sql.parser.OrientSql) (null)), -1556);
+        OMatchStatement matchStatement = new OMatchStatement();
+        OUnwind unwind = new OUnwind(((OrientSql) (null)), -1556);
         matchStatement.setUnwind(unwind);
-        com.orientechnologies.orient.core.sql.parser.OMatchStatement copiedStatement = matchStatement.copy();
+        OMatchStatement copiedStatement = matchStatement.copy();
         assertTrue(copiedStatement.equals(((Object) (matchStatement))));
         assertFalse(copiedStatement.isReturnDistinct());
     }

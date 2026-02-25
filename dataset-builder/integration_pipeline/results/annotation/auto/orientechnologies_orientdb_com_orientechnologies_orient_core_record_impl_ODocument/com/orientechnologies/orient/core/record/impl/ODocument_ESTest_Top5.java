@@ -81,6 +81,20 @@ public class ODocument_ESTest_Top5 extends ODocument_ESTest_scaffolding {
     }
 
     /**
+     * This test added target-class coverage 0.06% for com.orientechnologies.orient.core.record.impl.ODocument (1/1700 lines).
+     * Delta details: +1 methods, +1 branches, +3 instructions.
+     * Full version of the covered block is here: <a href="https://github.com/orientechnologies/orientdb/blob/20ac246eb62a89d78d784974de0fd2a36752b2d8/core/src/main/java/com/orientechnologies/orient/core/record/impl/ODocument.java#L1028-L1028">ODocument.java (lines 1028-1028)</a>
+     * Covered Lines:
+     * <pre><code>
+     *     if (fieldValue == null) return;
+     * </code></pre>
+     */
+    @Test(timeout = 4000)
+    public void testValidateEmbedded() throws Throwable {
+        ODocument.validateEmbedded(((OProperty) (null)), ((Object) (null)));
+    }
+
+    /**
      * This test added target-class coverage 1.47% for com.orientechnologies.orient.core.record.impl.ODocument (25/1700 lines).
      * Delta details: +-7 methods, +-6 branches, +18 instructions.
      * Full version of the covered block is here: <a href="https://github.com/orientechnologies/orientdb/blob/20ac246eb62a89d78d784974de0fd2a36752b2d8/core/src/main/java/com/orientechnologies/orient/core/record/impl/ODocument.java#L246-L249">ODocument.java (lines 246-249)</a>
@@ -105,19 +119,5 @@ public class ODocument_ESTest_Top5 extends ODocument_ESTest_scaffolding {
             // 
             verifyException("com.orientechnologies.orient.core.db.document.ODatabaseDocumentAbstract", e);
         }
-    }
-
-    /**
-     * This test added target-class coverage 0.06% for com.orientechnologies.orient.core.record.impl.ODocument (1/1700 lines).
-     * Delta details: +1 methods, +1 branches, +3 instructions.
-     * Full version of the covered block is here: <a href="https://github.com/orientechnologies/orientdb/blob/20ac246eb62a89d78d784974de0fd2a36752b2d8/core/src/main/java/com/orientechnologies/orient/core/record/impl/ODocument.java#L1028-L1028">ODocument.java (lines 1028-1028)</a>
-     * Covered Lines:
-     * <pre><code>
-     *     if (fieldValue == null) return;
-     * </code></pre>
-     */
-    @Test(timeout = 4000)
-    public void testValidateEmbedded() throws Throwable {
-        ODocument.validateEmbedded(((OProperty) (null)), ((Object) (null)));
     }
 }
