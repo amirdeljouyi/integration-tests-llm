@@ -19,6 +19,11 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import org.evosuite.runtime.EvoRunnerParameters;
 import org.junit.runner.RunWith;
 
+/**
+ * Corresponding manual test: {@link com.alibaba.druid.pool.DruidDataSourceTest}.
+ * Manual test source on GitHub: <a href="https://github.com/alibaba/druid/blob/3246166f8b623969c6561eeab1c864f43829399b/core/src/test/java/com/alibaba/druid/pool/DruidDataSourceTest.java">DruidDataSourceTest</a>.
+ * @see com.alibaba.druid.pool.DruidDataSourceTest
+ */
 public class DruidDataSource_ESTest_Top5 extends DruidDataSource_ESTest_scaffolding {
 
     /**

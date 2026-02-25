@@ -14,6 +14,12 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
+/**
+ * Corresponding manual test: {@link com.alibaba.druid.pool.DruidDataSourceTest}.
+ * Manual test source on GitHub: <a href="https://github.com/alibaba/druid/blob/3246166f8b623969c6561eeab1c864f43829399b/core/src/test/java/com/alibaba/druid/pool/DruidDataSourceTest.java">DruidDataSourceTest</a>.
+ * @see com.alibaba.druid.pool.DruidDataSourceTest
+ */
 public class DruidDataSource_ESTest_Adopted_Top5 {
 
     /**

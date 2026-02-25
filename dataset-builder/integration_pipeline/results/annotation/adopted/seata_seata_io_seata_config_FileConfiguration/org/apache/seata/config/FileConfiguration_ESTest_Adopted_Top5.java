@@ -28,6 +28,11 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Corresponding manual test: {@link org.apache.seata.config.FileConfigurationTest}.
+ * Manual test source on GitHub: <a href="https://github.com/seata/seata/blob/6160c7dce931c98522a3788ed2bd5440a87fa4e7/config/seata-config-core/src/test/java/org/apache/seata/config/FileConfigurationTest.java">FileConfigurationTest</a>.
+ * @see org.apache.seata.config.FileConfigurationTest
+ */
 class FileConfiguration_ESTest_Adopted_Top5 {
     // Logger logger = LoggerFactory.getLogger(FileConfigurationTest.class);
     @BeforeAll

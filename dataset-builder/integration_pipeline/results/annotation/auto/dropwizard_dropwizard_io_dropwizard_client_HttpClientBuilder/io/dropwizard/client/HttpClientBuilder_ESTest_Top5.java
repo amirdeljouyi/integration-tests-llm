@@ -47,6 +47,11 @@ import org.evosuite.runtime.EvoRunnerParameters;
 import org.evosuite.runtime.ViolatedAssumptionAnswer;
 import org.junit.runner.RunWith;
 
+/**
+ * Corresponding manual test: {@link io.dropwizard.client.AnotherHttpClientBuilder}.
+ * Manual test source on GitHub: `/Users/amirdeljouyi/se/integration-tests-llm/dataset-builder/collected-tests/manual/dropwizard_dropwizard/io.dropwizard.client.HttpClientBuilder/HttpClientBuilderTest.java`.
+ * @see io.dropwizard.client.AnotherHttpClientBuilder
+ */
 public class HttpClientBuilder_ESTest_Top5 extends HttpClientBuilder_ESTest_scaffolding {
 
     /**

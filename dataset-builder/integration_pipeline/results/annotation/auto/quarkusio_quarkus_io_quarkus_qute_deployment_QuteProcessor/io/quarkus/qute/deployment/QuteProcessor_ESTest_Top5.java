@@ -140,6 +140,11 @@ import org.jboss.jandex.TypeVariable;
 import org.jboss.jandex.WildcardType;
 import org.junit.runner.RunWith;
 
+/**
+ * Corresponding manual test: {@link io.quarkus.qute.deployment.QuteProcessorTest}.
+ * Manual test source on GitHub: <a href="https://github.com/quarkusio/quarkus/blob/5b8508beac194241cbe9a4cbf2520c6ca8340e58/extensions/qute/deployment/src/test/java/io/quarkus/qute/deployment/QuteProcessorTest.java">QuteProcessorTest</a>.
+ * @see io.quarkus.qute.deployment.QuteProcessorTest
+ */
 public class QuteProcessor_ESTest_Top5 extends QuteProcessor_ESTest_scaffolding {
 
     /**

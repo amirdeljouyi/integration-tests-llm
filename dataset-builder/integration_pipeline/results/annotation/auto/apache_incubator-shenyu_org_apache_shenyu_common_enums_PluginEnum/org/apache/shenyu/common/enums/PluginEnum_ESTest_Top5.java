@@ -12,6 +12,11 @@ import org.apache.shenyu.common.enums.PluginEnum;
 import org.evosuite.runtime.EvoRunnerParameters;
 import org.junit.runner.RunWith;
 
+/**
+ * Corresponding manual test: {@link org.apache.shenyu.common.enums.PluginEnumTest}.
+ * Manual test source on GitHub: <a href="https://github.com/apache/incubator-shenyu/blob/b97c7db820e68cd052a9d9938eef33551d2a4ab6/shenyu-common/src/test/java/org/apache/shenyu/common/enums/PluginEnumTest.java">PluginEnumTest</a>.
+ * @see org.apache.shenyu.common.enums.PluginEnumTest
+ */
 public class PluginEnum_ESTest_Top5 extends PluginEnum_ESTest_scaffolding {
 
     /**

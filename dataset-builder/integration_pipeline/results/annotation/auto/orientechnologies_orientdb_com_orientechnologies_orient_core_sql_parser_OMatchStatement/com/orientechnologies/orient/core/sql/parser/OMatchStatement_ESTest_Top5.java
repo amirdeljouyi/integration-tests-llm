@@ -31,6 +31,11 @@ import java.util.Vector;
 import org.evosuite.runtime.EvoRunnerParameters;
 import org.junit.runner.RunWith;
 
+/**
+ * Corresponding manual test: {@link com.orientechnologies.orient.core.sql.parser.OMatchStatementTest}.
+ * Manual test source on GitHub: <a href="https://github.com/orientechnologies/orientdb/blob/20ac246eb62a89d78d784974de0fd2a36752b2d8/core/src/test/java/com/orientechnologies/orient/core/sql/parser/OMatchStatementTest.java">OMatchStatementTest</a>.
+ * @see com.orientechnologies.orient.core.sql.parser.OMatchStatementTest
+ */
 public class OMatchStatement_ESTest_Top5 extends OMatchStatement_ESTest_scaffolding {
 
     /**

@@ -13,6 +13,11 @@ import org.apache.seata.config.ConfigurationCache;
 import org.evosuite.runtime.EvoRunnerParameters;
 import org.junit.runner.RunWith;
 
+/**
+ * Corresponding manual test: {@link org.apache.seata.config.FileConfigurationTest}.
+ * Manual test source on GitHub: <a href="https://github.com/seata/seata/blob/6160c7dce931c98522a3788ed2bd5440a87fa4e7/config/seata-config-core/src/test/java/org/apache/seata/config/FileConfigurationTest.java">FileConfigurationTest</a>.
+ * @see org.apache.seata.config.FileConfigurationTest
+ */
 public class FileConfiguration_ESTest_Top5 extends FileConfiguration_ESTest_scaffolding {
 
     /**

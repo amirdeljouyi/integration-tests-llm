@@ -17,6 +17,12 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
+/**
+ * Corresponding manual test: {@link com.orientechnologies.orient.core.sql.parser.OMatchStatementTest}.
+ * Manual test source on GitHub: <a href="https://github.com/orientechnologies/orientdb/blob/20ac246eb62a89d78d784974de0fd2a36752b2d8/core/src/test/java/com/orientechnologies/orient/core/sql/parser/OMatchStatementTest.java">OMatchStatementTest</a>.
+ * @see com.orientechnologies.orient.core.sql.parser.OMatchStatementTest
+ */
 public class OMatchStatement_ESTest_Adopted_Top5 {
     // Adapted and merged parser syntax tests from IGT
     private SimpleNode checkRightSyntax(String query) {

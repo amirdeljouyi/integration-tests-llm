@@ -11,6 +11,11 @@ import org.evosuite.runtime.EvoRunnerParameters;
 import org.jboss.as.connector.subsystems.datasources.Constants;
 import org.junit.runner.RunWith;
 
+/**
+ * Corresponding manual test: {@link org.wildfly.test.undertow.common.TestConstants}.
+ * Manual test source on GitHub: <a href="https://github.com/wildfly/wildfly/blob/2869203dcca947f3393cff9a3b62cfd527d50491/testsuite/shared/src/main/java/org/wildfly/test/undertow/common/TestConstants.java">TestConstants</a>.
+ * @see org.wildfly.test.undertow.common.TestConstants
+ */
 public class Constants_ESTest_Top5 extends Constants_ESTest_scaffolding {
 
     /**

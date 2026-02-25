@@ -113,6 +113,12 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+
+/**
+ * Corresponding manual test: {@link io.quarkus.qute.deployment.QuteProcessorTest}.
+ * Manual test source on GitHub: <a href="https://github.com/quarkusio/quarkus/blob/5b8508beac194241cbe9a4cbf2520c6ca8340e58/extensions/qute/deployment/src/test/java/io/quarkus/qute/deployment/QuteProcessorTest.java">QuteProcessorTest</a>.
+ * @see io.quarkus.qute.deployment.QuteProcessorTest
+ */
 public class QuteProcessor_ESTest_Adopted_Top5 {
 
     /**

@@ -117,6 +117,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+
+/**
+ * Corresponding manual test: {@link com.github.javaparser.ast.visitor.CloneVisitorTest}.
+ * Manual test source on GitHub: <a href="https://github.com/javaparser/javaparser/blob/ef5de98c0681b6ecc24be128b9aed6761bbbf6a0/javaparser-core-testing/src/test/java/com/github/javaparser/ast/visitor/CloneVisitorTest.java">CloneVisitorTest</a>.
+ * @see com.github.javaparser.ast.visitor.CloneVisitorTest
+ */
 public class CloneVisitor_ESTest_Adopted_Top5 {
 
     /**

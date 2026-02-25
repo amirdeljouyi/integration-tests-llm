@@ -67,6 +67,11 @@ import io.quarkus.qute.deployment.TemplatesAnalysisBuildItem.TemplateAnalysis;
 import io.quarkus.qute.runtime.QuteConfig;
 import io.quarkus.qute.runtime.QuteRecorder;
 
+/**
+ * Corresponding manual test: {@link io.quarkus.qute.deployment.QuteProcessorTest}.
+ * Manual test source on GitHub: <a href="https://github.com/quarkusio/quarkus/blob/5b8508beac194241cbe9a4cbf2520c6ca8340e58/extensions/qute/deployment/src/test/java/io/quarkus/qute/deployment/QuteProcessorTest.java">QuteProcessorTest</a>.
+ * @see io.quarkus.qute.deployment.QuteProcessorTest
+ */
 public class QuteProcessor_ESTest_Adopted_Agentic_Top5 {
 
     /**

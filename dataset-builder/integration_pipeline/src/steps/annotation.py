@@ -14,6 +14,7 @@ from ..pipeline.helpers import (
     first_test_source_for_fqcn,
     reduced_test_path,
     reduced_variant_test_path,
+    test_fqcn_from_source,
 )
 from .base import Step
 
@@ -24,6 +25,10 @@ if TYPE_CHECKING:
 _METHOD_RE = re.compile(
     r"^(?P<indent>\s*)(?:public|protected|private)?\s*(?:final\s+)?(?:static\s+)?void\s+"
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\("
+)
+_CLASS_RE = re.compile(
+    r"^(?P<indent>\s*)(?:public|protected|private)?\s*(?:final\s+)?(?:abstract\s+)?class\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
 )
 
 
@@ -279,6 +284,33 @@ def _github_url(repo: str, repo_root: Path, src: Path, span: Tuple[int, int], re
     return f"https://github.com/{repo}/blob/{ref}/{rel.as_posix()}#L{a}-L{b}"
 
 
+def _github_file_url(repo: str, repo_root: Path, src: Path, ref: str) -> Optional[str]:
+    try:
+        rel = src.resolve().relative_to(repo_root.resolve())
+    except Exception:
+        return None
+    return f"https://github.com/{repo}/blob/{ref}/{rel.as_posix()}"
+
+
+def _resolve_repo_source_for_fqcn(repo_root: Path, fqcn: str) -> Optional[Path]:
+    fqcn = (fqcn or "").strip()
+    if not fqcn:
+        return None
+    primary = fqcn.split("$", 1)[0]
+    rel = Path(*primary.split(".")).with_suffix(".java")
+    direct = repo_root / rel
+    if direct.exists():
+        return direct
+
+    matches = list(repo_root.rglob(rel.name))
+    if not matches:
+        return None
+    for cand in matches:
+        if str(cand).endswith(str(rel)):
+            return cand
+    return matches[0]
+
+
 def _render_line_block(
     indent: str,
     *,
@@ -397,6 +429,48 @@ def _build_annotation_comment(
     return out
 
 
+def _strip_existing_class_annotation_javadoc(text: str) -> str:
+    return re.sub(
+        r"/\*\*[\s\S]*?Corresponding manual test:[\s\S]*?\*/\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _insert_class_annotation_javadoc(
+    lines: List[str],
+    *,
+    manual_test_fqcn: str,
+    manual_test_link_html: str,
+) -> Tuple[List[str], bool]:
+    class_idx = -1
+    for idx, line in enumerate(lines):
+        if _CLASS_RE.match(line):
+            class_idx = idx
+            break
+    if class_idx < 0:
+        return lines, False
+
+    insert_at = class_idx
+    while insert_at > 0 and lines[insert_at - 1].lstrip().startswith("@"):
+        insert_at -= 1
+    indent = _CLASS_RE.match(lines[class_idx]).group("indent") if _CLASS_RE.match(lines[class_idx]) else ""
+    block = [
+        f"{indent}/**",
+        f"{indent} * Corresponding manual test: {{@link {manual_test_fqcn}}}.",
+        f"{indent} * Manual test source on GitHub: {manual_test_link_html}.",
+        f"{indent} * @see {manual_test_fqcn}",
+        f"{indent} */",
+    ]
+    out = list(lines[:insert_at])
+    if out and out[-1].strip() != "":
+        out.append("")
+    out.extend(block)
+    out.extend(lines[insert_at:])
+    return out, True
+
+
 def _annotate_reduced_test(
     *,
     repo: str,
@@ -404,6 +478,8 @@ def _annotate_reduced_test(
     repo_ref: str,
     target_class: str,
     denominator_line_total: int,
+    manual_test_fqcn: str,
+    manual_test_link_html: str,
     reduced_src: Path,
     annotated_out: Path,
     test_deltas_csv: Path,
@@ -421,6 +497,7 @@ def _annotate_reduced_test(
         text,
         flags=re.IGNORECASE,
     )
+    text = _strip_existing_class_annotation_javadoc(text)
     # Normalize legacy annotations: remove any span wrappers from prior runs.
     text = re.sub(r"</?span[^>]*>", "", text, flags=re.IGNORECASE)
     # Normalize legacy explicit-space entities from prior runs.
@@ -538,6 +615,15 @@ def _annotate_reduced_test(
                     changed = True
         new_lines.append(line)
 
+    if manual_test_fqcn and manual_test_link_html:
+        new_lines, added_class_doc = _insert_class_annotation_javadoc(
+            new_lines,
+            manual_test_fqcn=manual_test_fqcn,
+            manual_test_link_html=manual_test_link_html,
+        )
+        if added_class_doc:
+            changed = True
+
     annotated_out.parent.mkdir(parents=True, exist_ok=True)
     if changed:
         annotated_out.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
@@ -581,6 +667,43 @@ class ReducedAnnotationStep(Step):
         repo_ref = _github_ref(repo_root)
         annotation_root = Path(self.pipeline.args.annotation_out)
         summary_csvs = [self.pipeline.summary_csv, self.pipeline.adopted_summary_csv]
+        manual_fqcn = (ctx.manual_test_fqcn or "").strip()
+        manual_src: Optional[Path] = None
+        for src in ctx.manual_sources:
+            fqcn = test_fqcn_from_source(src) or ""
+            if fqcn and fqcn == manual_fqcn:
+                manual_src = src
+                break
+        if not manual_fqcn and ctx.manual_sources:
+            manual_src = ctx.manual_sources[0]
+            manual_fqcn = test_fqcn_from_source(manual_src) or ""
+        if manual_src is None and ctx.manual_sources:
+            manual_src = ctx.manual_sources[0]
+        manual_repo_src: Optional[Path] = None
+        if manual_src is not None:
+            manual_url = _github_file_url(ctx.repo, repo_root, manual_src, repo_ref)
+            if manual_url:
+                manual_repo_src = manual_src
+            else:
+                manual_repo_src = _resolve_repo_source_for_fqcn(repo_root, manual_fqcn)
+        else:
+            manual_repo_src = _resolve_repo_source_for_fqcn(repo_root, manual_fqcn)
+
+        manual_url = _github_file_url(ctx.repo, repo_root, manual_repo_src, repo_ref) if manual_repo_src else None
+        manual_label = (manual_fqcn.rsplit(".", 1)[-1] if manual_fqcn else "")
+        if not manual_label and manual_repo_src is not None:
+            manual_label = manual_repo_src.stem
+        if not manual_label and manual_src is not None:
+            manual_label = manual_src.stem
+        manual_link_html = (
+            f'<a href="{manual_url}">{manual_label}</a>'
+            if manual_url and manual_label
+            else (
+                f"`{manual_src.resolve()}`"
+                if manual_src is not None
+                else (f"`{manual_repo_src.resolve()}`" if manual_repo_src is not None else f"`{manual_fqcn}`")
+            )
+        )
 
         if "auto" in enabled:
             generated_test_src = first_test_source_for_fqcn(ctx.final_sources, ctx.generated_test_fqcn)
@@ -615,6 +738,8 @@ class ReducedAnnotationStep(Step):
                         repo_ref=repo_ref,
                         target_class=ctx.fqcn,
                         denominator_line_total=line_total,
+                        manual_test_fqcn=manual_fqcn,
+                        manual_test_link_html=manual_link_html,
                         reduced_src=reduced_src,
                         annotated_out=annotated_out,
                         test_deltas_csv=test_deltas,
@@ -661,6 +786,8 @@ class ReducedAnnotationStep(Step):
                 repo_ref=repo_ref,
                 target_class=ctx.fqcn,
                 denominator_line_total=line_total,
+                manual_test_fqcn=manual_fqcn,
+                manual_test_link_html=manual_link_html,
                 reduced_src=reduced_src,
                 annotated_out=annotated_out,
                 test_deltas_csv=test_deltas,

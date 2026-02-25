@@ -13,6 +13,12 @@ import java.util.TreeMap;
 import org.junit.Test;
 import static org.evosuite.runtime.EvoAssertions.verifyException;
 import static org.junit.Assert.fail;
+
+/**
+ * Corresponding manual test: {@link com.orientechnologies.orient.core.record.impl.ODocumentTest}.
+ * Manual test source on GitHub: <a href="https://github.com/orientechnologies/orientdb/blob/20ac246eb62a89d78d784974de0fd2a36752b2d8/core/src/test/java/com/orientechnologies/orient/core/record/impl/ODocumentTest.java">ODocumentTest</a>.
+ * @see com.orientechnologies.orient.core.record.impl.ODocumentTest
+ */
 public class ODocument_ESTest_Adopted_Top5 {
 
     /**
