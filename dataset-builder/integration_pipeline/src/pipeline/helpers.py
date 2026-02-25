@@ -174,12 +174,15 @@ def reduced_test_path(reduced_root: Path, target_id: str, generated_src: Path, t
     if not cls:
         return None
     reduced_name = f"{cls}_Top{top_n}.java"
-    base = reduced_root / target_id
-    cand = base / reduced_name
-    if cand.exists():
-        return cand
-    matches = list(base.rglob(reduced_name)) if base.exists() else []
-    return matches[0] if matches else None
+    bases = [reduced_root / target_id, reduced_root / "auto" / target_id]
+    for base in bases:
+        cand = base / reduced_name
+        if cand.exists():
+            return cand
+        matches = list(base.rglob(reduced_name)) if base.exists() else []
+        if matches:
+            return matches[0]
+    return None
 
 
 def reduced_variant_test_path(reduced_root: Path, variant: str, target_id: str, top_n: int) -> Optional[Path]:

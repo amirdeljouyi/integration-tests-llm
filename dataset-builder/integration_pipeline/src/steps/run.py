@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 import shutil
 import signal
 import subprocess
 import zipfile
 from pathlib import Path
-from typing import List, Tuple, TYPE_CHECKING
+from typing import List, Tuple, TYPE_CHECKING, Optional
 
 from ..core.common import detect_junit_version, ensure_dir, parse_package_and_class, shlex_join
 from ..core.coverage import write_coverage_row
 from ..pipeline.helpers import adopted_variants
 from .base import Step
-from .compile import compile_test_set_smart
+from .compile import compile_test_set_smart, resolve_repo_runtime_classpath
 
 if TYPE_CHECKING:
     from ..pipeline.pipeline import TargetContext
@@ -39,6 +40,8 @@ class JacocoTestRunner:
             tool_jar: Path,
             timeout_ms: int | None,
             java_opens: List[str] | None = None,
+            fallback_test_class_dirs: Optional[List[Path]] = None,
+            extra_runtime_cp: str = "",
     ) -> None:
         self.libs_glob_cp = libs_glob_cp
         self.compiled_tests_dir = compiled_tests_dir
@@ -47,9 +50,61 @@ class JacocoTestRunner:
         self.tool_jar = tool_jar
         self.timeout_ms = timeout_ms
         self.java_opens = list(java_opens) if java_opens else list(JAVA_OPENS)
+        self.fallback_test_class_dirs = list(fallback_test_class_dirs or [])
+        self.extra_runtime_cp = (extra_runtime_cp or "").strip()
 
     def run_test(self, *, test_selector: str, jacoco_exec_file: Path, log_file: Path) -> str:
-        cp = f"{self.compiled_tests_dir}:{self.libs_glob_cp}:{self.sut_jar}:{self.tool_jar}"
+        rel_class = Path(*test_selector.split(".")).with_suffix(".class")
+        candidate_test_roots: List[Path] = [self.compiled_tests_dir, *self.fallback_test_class_dirs]
+        ordered_roots: List[Path] = []
+        seen_roots = set()
+        for p in candidate_test_roots:
+            if p in seen_roots:
+                continue
+            seen_roots.add(p)
+            ordered_roots.append(p)
+
+        selected_test_root: Optional[Path] = None
+        expected_test_class = self.compiled_tests_dir / rel_class
+        checked_locations: List[Path] = []
+        for root in ordered_roots:
+            expected = root / rel_class
+            checked_locations.append(expected)
+            if expected.exists():
+                selected_test_root = root
+                expected_test_class = expected
+                break
+
+        cp_parts: List[str] = []
+        if selected_test_root is not None:
+            cp_parts.append(str(selected_test_root))
+        for root in ordered_roots:
+            if selected_test_root is not None and root == selected_test_root:
+                continue
+            if root.exists():
+                cp_parts.append(str(root))
+        cp_parts.extend([self.libs_glob_cp, str(self.sut_jar)])
+        if self.extra_runtime_cp:
+            cp_parts.append(self.extra_runtime_cp)
+        cp_parts.append(str(self.tool_jar))
+        cp = ":".join(cp_parts)
+
+        # Some inventory entries point to tests that don't compile for a given target.
+        # If the class file isn't present, treat this as skipped rather than a hard failure.
+        if selected_test_root is None:
+            checked_text = "\n".join(str(p) for p in checked_locations)
+            log_file.write_text(
+                (
+                    f"[agt] run skipped:\n"
+                    f'test class "{test_selector}" is not present under compiled test classes.\n'
+                    f"expected class file: {expected_test_class}\n"
+                    f"checked class files:\n{checked_text}\n"
+                    f"classpath would have been:\n{cp}\n"
+                ),
+                encoding="utf-8",
+                errors="ignore",
+            )
+            return "skipped"
 
         cmd = [
             "java", *self.java_opens,
@@ -108,6 +163,9 @@ class JacocoTestRunner:
                     if skipped > 0 and failed == 0:
                         return "skipped"
             return "passed"
+        m = re.search(r"ClassNotFoundException:\s+([A-Za-z0-9_.$]+)", out)
+        if m and m.group(1) == test_selector:
+            return "skipped"
         return "failed"
 
 
@@ -123,6 +181,8 @@ def run_one_test_with_jacoco(
         log_file: Path,
         tool_jar: Path,
         timeout_ms: int | None,
+        fallback_test_class_dirs: Optional[List[Path]] = None,
+        extra_runtime_cp: str = "",
 ) -> str:
     """
     Run a single test class with JaCoCo using the Java tool's RunOne.
@@ -135,11 +195,47 @@ def run_one_test_with_jacoco(
         jacoco_agent_jar=jacoco_agent_jar,
         tool_jar=tool_jar,
         timeout_ms=timeout_ms,
+        fallback_test_class_dirs=fallback_test_class_dirs,
+        extra_runtime_cp=extra_runtime_cp,
     ).run_test(
         test_selector=test_fqcn,
         jacoco_exec_file=jacoco_exec_file,
         log_file=log_file,
     )
+
+
+def _candidate_repo_test_class_dirs(repo_root_for_deps: Optional[Path], module_rel: str) -> List[Path]:
+    if not repo_root_for_deps or not repo_root_for_deps.exists():
+        return []
+
+    rel = (module_rel or "").strip()
+    module_dir = repo_root_for_deps if not rel or rel in {".", "root"} else (repo_root_for_deps / rel)
+    roots: List[Path] = []
+    if module_dir.exists():
+        roots.append(module_dir)
+    if repo_root_for_deps not in roots:
+        roots.append(repo_root_for_deps)
+
+    candidates: List[Path] = []
+    rel_dirs = [
+        "target/test-classes",
+        "build/classes/java/test",
+        "build/classes/kotlin/test",
+        "build/resources/test",
+        "target/classes",
+        "build/classes/java/main",
+        "build/classes/kotlin/main",
+        "build/resources/main",
+    ]
+    seen = set()
+    for root in roots:
+        for rel_dir in rel_dirs:
+            p = root / rel_dir
+            if not p.exists() or p in seen:
+                continue
+            seen.add(p)
+            candidates.append(p)
+    return candidates
 
 
 def run_test_with_coverage(
@@ -157,6 +253,9 @@ def run_test_with_coverage(
     target_fqcn: str,
     coverage_tmp_dir: Path,
     test_fqcn: str | None = None,
+    repo_root_for_deps: Optional[Path] = None,
+    module_rel: str = "",
+    build_tool: str = "",
 ) -> Tuple[str, Tuple[int, int, int, int], str | None]:
     if not test_fqcn:
         pkg, cls = parse_package_and_class(test_src)
@@ -165,6 +264,11 @@ def run_test_with_coverage(
         test_fqcn = f"{pkg}.{cls}" if pkg else cls
 
     junit_ver = detect_junit_version(test_src)
+    fallback_test_class_dirs = _candidate_repo_test_class_dirs(repo_root_for_deps, module_rel)
+    extra_runtime_cp = ""
+    if repo_root_for_deps and repo_root_for_deps.exists():
+        extra_runtime_cp = resolve_repo_runtime_classpath(repo_root_for_deps, module_rel, build_tool)
+
     status = run_one_test_with_jacoco(
         junit_version=junit_ver,
         test_fqcn=test_fqcn,
@@ -176,6 +280,8 @@ def run_test_with_coverage(
         log_file=run_log,
         tool_jar=tool_jar,
         timeout_ms=timeout_ms,
+        fallback_test_class_dirs=fallback_test_class_dirs,
+        extra_runtime_cp=extra_runtime_cp,
     )
 
     stats = (0, 0, 0, 0)
@@ -279,6 +385,7 @@ class RunStep(Step):
         jacoco_cli = self.pipeline.jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar"
         wrote_manual = False
         wrote_auto = False
+        selected_tests = {t for t in (ctx.manual_test_fqcn, ctx.generated_test_fqcn) if t}
 
         for src in ctx.final_sources:
             pkg, cls = parse_package_and_class(src)
@@ -288,6 +395,8 @@ class RunStep(Step):
                 continue
 
             test_fqcn = f"{pkg}.{cls}" if pkg else cls
+            if selected_tests and test_fqcn not in selected_tests:
+                continue
             exec_file = self.pipeline.out_dir / f"{ctx.target_id}__{cls}.exec"
             run_log = self.pipeline.logs_dir / f"{ctx.target_id}__{cls}.run.log"
 
@@ -306,6 +415,9 @@ class RunStep(Step):
                 jacoco_cli=jacoco_cli,
                 target_fqcn=ctx.fqcn,
                 coverage_tmp_dir=self.pipeline.build_dir,
+                repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
             )
             if status != "passed":
                 print(f"[agt] Test failed: {test_fqcn} (see {run_log})")
@@ -396,6 +508,8 @@ class AdoptedRunStep(Step):
                 sut_jar=ctx.sut_jar,
                 log_file=adopt_compile_log,
                 repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
                 max_rounds=self.pipeline.args.dep_rounds,
             )
             if not ok_adopt:
@@ -428,6 +542,9 @@ class AdoptedRunStep(Step):
                 jacoco_cli=self.pipeline.jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar",
                 target_fqcn=ctx.fqcn,
                 coverage_tmp_dir=self.pipeline.build_dir,
+                repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
             )
             if status != "passed":
                 print(f"[agt] adopted test failed: {adopted_fqcn} (see {run_log})")

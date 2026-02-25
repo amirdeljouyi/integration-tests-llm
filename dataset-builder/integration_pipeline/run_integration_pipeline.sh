@@ -5,7 +5,8 @@ INV="${1:-../_logs/tests_inventory.csv}"
 MAP="${2:-../../out/cut_to_fatjar_map.csv}"
 STEP="${3:-all}"
 SUBSTEP="${4:-}"
-TOP_N="${5:-}"
+VARIANTS="${5:-}"
+TOP_N="${6:-}"
 
 STEP_LABEL="${STEP}"
 if [[ -n "${SUBSTEP}" ]]; then
@@ -23,9 +24,10 @@ if [[ -n "${SUBSTEP}" ]]; then
 fi
 
 EXTRA_ARGS=()
+if [[ -n "${VARIANTS}" ]]; then
+  EXTRA_ARGS+=(--variants "${VARIANTS}")
+fi
 if [[ "${STEP}" == "reduce" && -n "${TOP_N}" ]]; then
-  EXTRA_ARGS+=(--max-tests "${TOP_N}")
-elif [[ "${STEP}" == "adopted" && "${SUBSTEP}" == "reduce" && -n "${TOP_N}" ]]; then
   EXTRA_ARGS+=(--max-tests "${TOP_N}")
 elif [[ "${STEP}" == "coverage" && "${SUBSTEP}" == "compare-reduced" && -n "${TOP_N}" ]]; then
   EXTRA_ARGS+=(--top-n "${TOP_N}")
@@ -38,7 +40,6 @@ python -m src \
   --libs-cp "libs/*" \
   --build-dir build/agt \
   --out-dir tmp \
-  --mode both \
   "${CMD_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"
 

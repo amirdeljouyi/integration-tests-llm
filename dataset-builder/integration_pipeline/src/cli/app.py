@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, Iterable
+from typing import Annotated, Any, Iterable, Optional
 
 import typer
 
@@ -84,8 +84,12 @@ def _steps_for_variants(
 @cli.callback()
 def cli_main(
     ctx: typer.Context,
-    tests_inventory_csv: Annotated[Path, typer.Argument(help="Path to tests inventory CSV")],
-    cut_to_fatjar_map_csv: Annotated[Path, typer.Argument(help="Path to CUT->fat-jar map CSV")],
+    tests_inventory_csv: Annotated[Path, typer.Argument(help="Path to tests inventory CSV")] = Path(
+        str(DEFAULTS["tests_inventory_csv"])
+    ),
+    cut_to_fatjar_map_csv: Annotated[Path, typer.Argument(help="Path to CUT->fat-jar map CSV")] = Path(
+        str(DEFAULTS["cut_to_fatjar_map_csv"])
+    ),
     generated_dir: Annotated[Path, typer.Option(help="Generated tests root directory")] = Path(
         str(DEFAULTS["generated_dir"])
     ),
@@ -104,9 +108,6 @@ def cli_main(
     ),
     build_dir: Annotated[Path, typer.Option(help="Build directory for compilation/run steps")] = Path(
         str(DEFAULTS["build_dir"])
-    ),
-    mode: Annotated[str, typer.Option(help="Deprecated (ignored): use --variants on commands")] = str(
-        DEFAULTS["mode"]
     ),
     includes: Annotated[str, typer.Option(help="Glob for selecting tests/targets")] = str(
         DEFAULTS["includes"]
@@ -138,7 +139,6 @@ def cli_main(
             jacoco_agent=str(jacoco_agent),
             out_dir=str(out_dir),
             build_dir=str(build_dir),
-            mode=mode,
             includes=includes,
             dep_rounds=dep_rounds,
             tool_jar=str(tool_jar),
@@ -233,6 +233,7 @@ def reduce(
     max_tests: Annotated[int, typer.Option("--max-tests", min=1, help="Maximum tests to keep")] = int(
         DEFAULTS["reduce_max_tests"]
     ),
+    top_n: Annotated[Optional[int], typer.Option("--top-n", min=1, help="Alias for --max-tests")] = None,
     covfilter_jar: Annotated[Path, typer.Option(help="Coverage filter tool jar")] = Path(
         str(DEFAULTS["covfilter_jar"])
     ),
@@ -241,6 +242,8 @@ def reduce(
     ),
     variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,manual,adopted,agentic or all")] = "",
 ) -> None:
+    if top_n is not None:
+        max_tests = top_n
     if variants:
         steps = _steps_for_variants(
             variants=_parse_variants(variants),
@@ -288,6 +291,43 @@ def send(
         send_script=send_script,
         send_api_url=send_api_url,
         send_sleep_seconds=send_sleep_seconds,
+    )
+
+
+@cli.command(help="Annotate reduced tests with coverage deltas and covered lines")
+def annotation(
+    ctx: typer.Context,
+    reduced_out: Annotated[Path, typer.Option(help="Output directory for reduced tests")] = Path(
+        str(DEFAULTS["reduced_out"])
+    ),
+    adopted_reduced_out: Annotated[Path, typer.Option(help="Output directory for reduced adopted tests")] = Path(
+        str(DEFAULTS["adopted_reduced_out"])
+    ),
+    covfilter_out: Annotated[Path, typer.Option(help="Covfilter output directory")] = Path(
+        str(DEFAULTS["covfilter_out"])
+    ),
+    adopted_covfilter_out: Annotated[Path, typer.Option(help="Covfilter output for adopted tests")] = Path(
+        str(DEFAULTS["adopted_covfilter_out"])
+    ),
+    annotation_out: Annotated[Path, typer.Option(help="Output directory for annotated reduced tests")] = Path(
+        str(DEFAULTS["annotation_out"])
+    ),
+    variants: Annotated[
+        str, typer.Option(help="Comma-separated variants: auto,adopted,agentic or all")
+    ] = str(DEFAULTS["annotation_variants"]),
+) -> None:
+    selected = _parse_variants(variants)
+    selected -= {"manual"}
+    variant_csv = ",".join(sorted(selected)) if selected else "auto,adopted,agentic"
+    _run(
+        ctx,
+        "annotation",
+        reduced_out=str(reduced_out),
+        adopted_reduced_out=str(adopted_reduced_out),
+        covfilter_out=str(covfilter_out),
+        adopted_covfilter_out=str(adopted_covfilter_out),
+        annotation_out=str(annotation_out),
+        annotation_variants=variant_csv,
     )
 
 
@@ -405,55 +445,27 @@ def llm_integrate_step_by_step(
     _run(ctx, "llm-integration-step-by-step", adopted_dir=str(adopted_dir))
 
 
-@adopted_app.command("fix", help="Fix adopted tests")
+@adopted_app.command("fix", help="Deprecated: use `adopted fix --variants adopted,agentic`")
 def adopted_fix(
     ctx: typer.Context,
     adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
         str(DEFAULTS["adopted_dir"])
     ),
-    variants: Annotated[str, typer.Option(help="Comma-separated variants: adopted,agentic")] = "",
 ) -> None:
-    if variants:
-        steps = _steps_for_variants(
-            variants=_parse_variants(variants),
-            auto_step="adopted-fix",
-            adopted_step="adopted-fix",
-            allow_manual=False,
-            allow_auto=False,
-            allow_adopted=True,
-            allow_agentic=True,
-        )
-        if steps:
-            _run_steps(ctx, steps, adopted_dir=str(adopted_dir))
-        raise typer.Exit(code=0)
-    _run(ctx, "adopted-fix", adopted_dir=str(adopted_dir))
+    _run_steps(ctx, ["adopted-fix"], adopted_dir=str(adopted_dir))
 
 
-@adopted_app.command("comment", help="Comment adopted tests")
+@adopted_app.command("comment", help="Deprecated: use `adopted comment --variants adopted,agentic`")
 def adopted_comment(
     ctx: typer.Context,
     adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
         str(DEFAULTS["adopted_dir"])
     ),
-    variants: Annotated[str, typer.Option(help="Comma-separated variants: adopted,agentic")] = "",
 ) -> None:
-    if variants:
-        steps = _steps_for_variants(
-            variants=_parse_variants(variants),
-            auto_step="adopted-comment",
-            adopted_step="adopted-comment",
-            allow_manual=False,
-            allow_auto=False,
-            allow_adopted=True,
-            allow_agentic=True,
-        )
-        if steps:
-            _run_steps(ctx, steps, adopted_dir=str(adopted_dir))
-        raise typer.Exit(code=0)
-    _run(ctx, "adopted-comment", adopted_dir=str(adopted_dir))
+    _run_steps(ctx, ["adopted-comment"], adopted_dir=str(adopted_dir))
 
 
-@adopted_app.command("filter", help="Filter adopted tests with covfilter")
+@adopted_app.command("filter", help="Deprecated: use `filter --variants adopted,agentic`")
 def adopted_filter(
     ctx: typer.Context,
     adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
@@ -468,32 +480,11 @@ def adopted_filter(
     sut_classes_dir: Annotated[str, typer.Option(help="Directory of SUT .class files (optional)")] = str(
         DEFAULTS["sut_classes_dir"]
     ),
-    variants: Annotated[str, typer.Option(help="Comma-separated variants: adopted,agentic")] = "",
 ) -> None:
-    if variants:
-        steps = _steps_for_variants(
-            variants=_parse_variants(variants),
-            auto_step="adopted-filter",
-            adopted_step="adopted-filter",
-            allow_manual=False,
-            allow_auto=False,
-            allow_adopted=True,
-            allow_agentic=True,
-        )
-        if steps:
-            _run_steps(
-                ctx,
-                steps,
-                adopted_dir=str(adopted_dir),
-                adopted_covfilter_out=str(adopted_covfilter_out),
-                covfilter_jar=str(covfilter_jar),
-                sut_classes_dir=sut_classes_dir,
-                do_covfilter=True,
-            )
-        raise typer.Exit(code=0)
-    _run(
+    _run_steps(
         ctx,
-        "adopted-filter",
+        ["filter"],
+        variants="adopted,agentic",
         adopted_dir=str(adopted_dir),
         adopted_covfilter_out=str(adopted_covfilter_out),
         covfilter_jar=str(covfilter_jar),
@@ -517,35 +508,17 @@ def adopted_reduce(
     max_tests: Annotated[int, typer.Option("--max-tests", min=1, help="Maximum adopted tests to keep")] = int(
         DEFAULTS["adopted_reduce_max_tests"]
     ),
+    top_n: Annotated[Optional[int], typer.Option("--top-n", min=1, help="Alias for --max-tests")] = None,
     covfilter_jar: Annotated[Path, typer.Option(help="Coverage filter tool jar")] = Path(
         str(DEFAULTS["covfilter_jar"])
     ),
-    variants: Annotated[str, typer.Option(help="Comma-separated variants: adopted,agentic")] = "",
 ) -> None:
-    if variants:
-        steps = _steps_for_variants(
-            variants=_parse_variants(variants),
-            auto_step="adopted-reduce",
-            adopted_step="adopted-reduce",
-            allow_manual=False,
-            allow_auto=False,
-            allow_adopted=True,
-            allow_agentic=True,
-        )
-        if steps:
-            _run_steps(
-                ctx,
-                steps,
-                adopted_dir=str(adopted_dir),
-                adopted_reduced_out=str(adopted_reduced_out),
-                adopted_covfilter_out=str(adopted_covfilter_out),
-                adopted_reduce_max_tests=max_tests,
-                covfilter_jar=str(covfilter_jar),
-            )
-        raise typer.Exit(code=0)
-    _run(
+    if top_n is not None:
+        max_tests = top_n
+    _run_steps(
         ctx,
-        "adopted-reduce",
+        ["reduce"],
+        variants="adopted,agentic",
         adopted_dir=str(adopted_dir),
         adopted_reduced_out=str(adopted_reduced_out),
         adopted_covfilter_out=str(adopted_covfilter_out),
@@ -554,28 +527,14 @@ def adopted_reduce(
     )
 
 
-@adopted_app.command("run", help="Run adopted tests")
+@adopted_app.command("run", help="Deprecated: use `run --variants adopted,agentic`")
 def adopted_run(
     ctx: typer.Context,
     adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
         str(DEFAULTS["adopted_dir"])
     ),
-    variants: Annotated[str, typer.Option(help="Comma-separated variants: adopted,agentic")] = "",
 ) -> None:
-    if variants:
-        steps = _steps_for_variants(
-            variants=_parse_variants(variants),
-            auto_step="adopted-run",
-            adopted_step="adopted-run",
-            allow_manual=False,
-            allow_auto=False,
-            allow_adopted=True,
-            allow_agentic=True,
-        )
-        if steps:
-            _run_steps(ctx, steps, adopted_dir=str(adopted_dir))
-        raise typer.Exit(code=0)
-    _run(ctx, "adopted-run", adopted_dir=str(adopted_dir))
+    _run_steps(ctx, ["run"], variants="adopted,agentic", adopted_dir=str(adopted_dir))
 
 
 @coverage_app.command("compare", help="Coverage comparison (manual/auto/adopted)")

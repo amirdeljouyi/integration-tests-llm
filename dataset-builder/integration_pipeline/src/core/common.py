@@ -128,6 +128,7 @@ class CutToFatjarRow:
     fqcn: str
     fatjar_path: str
     module_rel: str = ""
+    build_tool: str = ""
 
 
 def load_cut_to_fatjar_map(csv_path: Path) -> Dict[Tuple[str, str], CutToFatjarRow]:
@@ -139,9 +140,16 @@ def load_cut_to_fatjar_map(csv_path: Path) -> Dict[Tuple[str, str], CutToFatjarR
         fqcn = (r.get("fqcn", "") or "").strip().strip('"')
         fatjar = (r.get("fatjar", "") or r.get("fatjar_path", "") or "").strip().strip('"')
         module_rel = (r.get("module_rel", "") or "").strip().strip('"')
+        build_tool = (r.get("build_tool", "") or "").strip().strip('"')
         if not repo or not fqcn:
             continue
-        out[(repo, fqcn)] = CutToFatjarRow(repo=repo, fqcn=fqcn, fatjar_path=fatjar, module_rel=module_rel)
+        out[(repo, fqcn)] = CutToFatjarRow(
+            repo=repo,
+            fqcn=fqcn,
+            fatjar_path=fatjar,
+            module_rel=module_rel,
+            build_tool=build_tool,
+        )
 
     return out
 

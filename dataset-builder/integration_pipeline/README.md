@@ -45,11 +45,20 @@ CLI usage (direct):
 python -m src [options...] <tests_inventory.csv> <cut_to_fatjar_map.csv> <command>
 ```
 
+Defaults:
+- `tests_inventory.csv`: `../_logs/tests_inventory.csv`
+- `cut_to_fatjar_map.csv`: `../out/cut_to_fatjar_map.csv`
+- `generated_dir`: `../collected-tests/generated`
+- `manual_dir`: `../collected-tests/manual`
+- `repos_dir`: `../repos`
+
 Examples:
 
 ```bash
 python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> coverage compare-reduced --top-n 5
-python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> adopted reduce --max-tests 5
+python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> reduce --variants adopted,agentic --max-tests 5
+python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> run --variants auto,adopted
+python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> filter --variants all
 ```
 
 ## Steps
@@ -80,24 +89,24 @@ Priority order (recommended run sequence):
 
 Step descriptions:
 
-- `compile` - compile generated and manual tests, resolve dependencies, and build test classpaths under `build/`.
-- `run` - execute generated/manual tests with JaCoCo and write `results/coverage/coverage_summary.csv`.
-- `filter` - run CoverageFilterApp to identify tests with coverage signal (uses fatjar + libs).
-- `reduce` - create reduced generated tests (top-N, `--max-tests`) based on coverage deltas.
+- `compile` - compile generated and manual tests, resolve dependencies, and build test classpaths under `build/`. Command: `compile`.
+- `run` - execute tests with JaCoCo and write `results/coverage/coverage_summary.csv` (`--variants`). Command: `run --variants auto,manual` (auto) and `run --variants adopted,agentic` (adopted).
+- `filter` - run CoverageFilterApp to identify tests with coverage signal (uses fatjar + libs, `--variants`). Command: `filter --variants auto,manual` (auto) and `filter --variants adopted,agentic` (adopted).
+- `reduce` - create reduced tests (top-N, `--max-tests`, `--variants`) based on coverage deltas. Command: `reduce --variants auto` (auto) and `reduce --variants adopted,agentic` (adopted). Outputs go under `results/reduced/<variant>/`.
 - `llm all` - send reduced tests + manual tests (promptType `integration_all`) to produce adopted tests. Subcommand: `llm all`.
 - `llm improve` - send reduced tests only (promptType `integration_improvement`) to produce `_Improved` tests. Subcommand: `llm improve`.
 - `llm integrate` - send `_Improved` tests + manual tests (promptType `integration_merge`) to produce adopted tests. Subcommand: `llm integrate`.
 - `llm integrate-sbs` - send `_Improved` tests + manual tests (promptType `integration_step_by_step`) to produce `_Adopted_StepByStep` tests. Subcommand: `llm integrate-sbs`.
 - `agent` - use Codex CLI to integrate `_Improved` tests with manual tests and output adopted tests (defaults to CLI model).
-- `adopted fix` - normalize adopted tests (via `src/steps/fix.py`) by removing `_scaffolding` imports/extends and adding `throws Exception` to test methods. Subcommand: `adopted fix`.
-- `adopted comment` - iteratively comment compile-error lines in `_Adopted` and `_Adopted_Agentic` tests until they compile. Subcommand: `adopted comment`.
-- `adopted filter` - run CoverageFilterApp for `_Adopted` and `_Adopted_Agentic` tests against manual tests. Subcommand: `adopted filter`.
-- `adopted reduce` - reduce `_Adopted` and `_Adopted_Agentic` tests (default top 5; `--max-tests`). Subcommand: `adopted reduce`.
+- `adopted fix` - normalize adopted tests (via `src/steps/fix.py`) by removing `_scaffolding` imports/extends and adding `throws Exception` to test methods (`--variants`). Command: `adopted fix --variants adopted,agentic`.
+- `adopted comment` - iteratively comment compile-error lines in `_Adopted` and `_Adopted_Agentic` tests until they compile (`--variants`). Command: `adopted comment --variants adopted,agentic`.
+- `adopted filter` - run CoverageFilterApp for `_Adopted` and `_Adopted_Agentic` tests against manual tests. Command: `filter --variants adopted,agentic`.
+- `adopted reduce` - reduce `_Adopted` and `_Adopted_Agentic` tests (default top 5; `--max-tests`). Command: `reduce --variants adopted,agentic --max-tests 5`.
 - `compare` - compare adopted vs generated tests (PMD/CPD + tri-compare metrics).
-- `adopted run` - execute adopted and agentic tests with JaCoCo and write `results/coverage/adopted_coverage_summary.csv`. Subcommand: `adopted run`.
+- `adopted run` - execute adopted and agentic tests with JaCoCo and write `results/coverage/adopted_coverage_summary.csv`. Command: `run --variants adopted,agentic`.
 - `pull-request-maker` - generate per-CUT PR drafts in `results/pr/` from `docs/PR_TEMPLATE.md`.
-- `coverage compare` - compare coverage for manual/auto/adopted/agentic tests; writes `results/coverage/coverage_compare.csv`. Subcommand: `coverage compare`.
-- `coverage compare-reduced` - compare coverage for reduced auto/adopted/agentic tests using a shared top-N (`--top-n`, default 5); writes `results/coverage/coverage_compare_reduced.csv`. Subcommand: `coverage compare-reduced`.
+- `coverage compare` - compare coverage for manual/auto/adopted/agentic tests; writes `results/coverage/coverage_compare.csv`. Command: `coverage compare`.
+- `coverage compare-reduced` - compare coverage for reduced auto/adopted/agentic tests using a shared top-N (`--top-n`, default 5); writes `results/coverage/coverage_compare_reduced.csv`. Command: `coverage compare-reduced --top-n 5`.
 - `all` - run all steps in the priority order above.
 
 ## Inputs
@@ -119,9 +128,10 @@ Step descriptions:
   - `results/coverage/adopted_coverage_summary.csv`
 - `results/` intermediate artifacts (covfilter/reduced/compare)
   - `results/covfilter/` (generated covfilter outputs)
-  - `results/reduced-agt/` (reduced generated tests)
-  - `results/covfilter-adopted/` (adopted covfilter outputs)
-  - `results/reduced-adopted/` (reduced adopted tests)
+- `results/reduced/auto/` (reduced generated tests)
+- `results/covfilter-adopted/` (adopted covfilter outputs)
+- `results/reduced/adopted/` (reduced adopted tests)
+- `results/reduced/agentic/` (reduced agentic tests)
   - `results/compare/` (comparison CSVs)
     - `results/compare/compare.csv`
     - `results/compare/tri_compare.csv`

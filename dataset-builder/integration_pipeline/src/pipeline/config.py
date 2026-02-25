@@ -10,16 +10,15 @@ from .helpers import _load_dotenv_if_present
 
 @dataclass(frozen=True)
 class PipelineArgs:
-    tests_inventory_csv: str
-    cut_to_fatjar_map_csv: str
-    generated_dir: str = "../generated"
-    manual_dir: str = "../manual"
+    tests_inventory_csv: str = "../collected-tests/_logs/tests_inventory.csv"
+    cut_to_fatjar_map_csv: str = "../out/cut_to_fatjar_map.csv"
+    generated_dir: str = "../collected-tests/generated"
+    manual_dir: str = "../collected-tests/manual"
     repos_dir: str = "../repos"
     libs_cp: str = "libs/*"
     jacoco_agent: str = "jacoco-deps/org.jacoco.agent-run-0.8.14.jar"
     out_dir: str = "tmp"
     build_dir: str = "build/agt"
-    mode: str = "both"
     includes: str = "*"
     dep_rounds: int = 3
     tool_jar: str = "coverage-filter-1.0-SNAPSHOT.jar"
@@ -27,7 +26,7 @@ class PipelineArgs:
     timeout_ms: int = 240_000
     filter_only_agt_covered: bool = False
     coverage_summary: str = ""
-    reduced_out: str = "results/reduced-agt"
+    reduced_out: str = "results/reduced"
     reduce_max_tests: int = 100
     send_script: str = ""
     send_api_url: str = "http://localhost:8001/graphql"
@@ -46,8 +45,10 @@ class PipelineArgs:
     covfilter_out: str = "results/covfilter"
     sut_classes_dir: str = ""
     adopted_covfilter_out: str = "results/covfilter-adopted"
-    adopted_reduced_out: str = "results/reduced-adopted"
+    adopted_reduced_out: str = "results/reduced"
     adopted_reduce_max_tests: int = 5
+    annotation_variants: str = "auto,adopted,agentic"
+    annotation_out: str = "results/annotation"
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,14 @@ def _ensure_csv_header(path: Path, header: str, *, reset: bool) -> None:
         path.write_text(header, encoding="utf-8")
 
 
+def _int_field_gt_zero(row: Dict[str, str], key: str) -> bool:
+    raw = (row.get(key, "") or "").strip()
+    try:
+        return int(raw) > 0
+    except ValueError:
+        return False
+
+
 def build_pipeline_config(args: PipelineArgs) -> PipelineConfig:
     _load_dotenv_if_present()
 
@@ -121,7 +130,11 @@ def build_pipeline_config(args: PipelineArgs) -> PipelineConfig:
     jacoco_agent = Path(args.jacoco_agent)
 
     mapping = load_cut_to_fatjar_map(map_csv)
-    inv_rows = read_csv_rows(inventory_csv)
+    inv_rows = [
+        row
+        for row in read_csv_rows(inventory_csv)
+        if _int_field_gt_zero(row, "generated_count") and _int_field_gt_zero(row, "manual_count")
+    ]
 
     do_covfilter = bool(args.do_covfilter)
     covfilter_jar = Path(args.covfilter_jar) if args.covfilter_jar else None
@@ -173,6 +186,7 @@ def build_pipeline_config(args: PipelineArgs) -> PipelineConfig:
         "pull-request-maker",
         "coverage-comparison",
         "coverage-comparison-reduced",
+        "annotation",
     ):
         summary_path = Path(args.coverage_summary) if args.coverage_summary else summary_csv
         if summary_path.exists():

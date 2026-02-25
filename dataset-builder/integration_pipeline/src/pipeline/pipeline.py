@@ -22,6 +22,7 @@ from ..steps import (
     CoverageComparisonStep,
     CovfilterStep,
     PullRequestMakerStep,
+    ReducedAnnotationStep,
     ReduceStep,
     RunStep,
     SendStep,
@@ -40,6 +41,8 @@ class TargetContext:
     manual_sources: List[Path]
     final_sources: List[Path]
     repo_root_for_deps: Path
+    module_rel: str = ""
+    build_tool: str = ""
     manual_test_fqcn: Optional[str] = None
     generated_test_fqcn: Optional[str] = None
 
@@ -57,8 +60,6 @@ class Pipeline:
         self.config = build_pipeline_config(self.args)
         for f in fields(PipelineConfig):
             setattr(self, f.name, getattr(self.config, f.name))
-        if self.args.mode and self.args.mode != "both":
-            print(f'[agt] Warning: --mode is deprecated and ignored (received "{self.args.mode}")')
 
     def run(self) -> int:
         self.run_configuration()
@@ -92,13 +93,7 @@ class Pipeline:
         gen_files = split_list_field(r.get("generated_files", ""))
         man_files = split_list_field(r.get("manual_files", ""))
 
-        if self.args.mode == "generated" and not gen_files:
-            self.skipped += 1
-            return None
-        if self.args.mode == "manual" and not man_files:
-            self.skipped += 1
-            return None
-        if self.args.mode == "both" and (not gen_files and not man_files):
+        if not gen_files and not man_files:
             self.skipped += 1
             return None
 
@@ -186,6 +181,8 @@ class Pipeline:
             manual_sources=manual_sources,
             final_sources=list(sources),
             repo_root_for_deps=repo_root_for_deps,
+            module_rel=(m.module_rel or "").strip(),
+            build_tool=(m.build_tool or "").strip(),
         )
 
     def process_target(self, ctx: TargetContext) -> bool:
@@ -194,12 +191,17 @@ class Pipeline:
                 if not step.run(ctx):
                     self.skipped += 1
                     return False
+
+                compiled_set = set(ctx.final_sources)
+                compiled_manual_sources = [s for s in ctx.manual_sources if s in compiled_set]
+                compiled_generated_sources = [s for s in ctx.final_sources if s not in set(ctx.manual_sources)]
+
                 ctx.manual_test_fqcn = first_test_fqcn_from_sources(
-                    ctx.manual_sources or ctx.final_sources,
+                    compiled_manual_sources,
                     prefer_estest=False,
                 )
                 ctx.generated_test_fqcn = first_test_fqcn_from_sources(
-                    ctx.final_sources,
+                    compiled_generated_sources,
                     prefer_estest=True,
                 )
                 continue
@@ -218,6 +220,7 @@ class Pipeline:
             AdoptedFilterStep(self),
             ReduceStep(self),
             AdoptedReduceStep(self),
+            ReducedAnnotationStep(self),
             SendStep(self),
             AgentStep(self),
             CompareStep(self),

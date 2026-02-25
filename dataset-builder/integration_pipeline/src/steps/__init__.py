@@ -12,6 +12,7 @@ from .compare import CompareStep
 from .pr_maker import PullRequestMakerStep
 from .coverage_compare import CoverageComparisonStep, CoverageComparisonReducedStep
 from .run import RunStep, AdoptedRunStep
+from .annotation import ReducedAnnotationStep
 
 __all__ = [
     "Step",
@@ -28,6 +29,7 @@ __all__ = [
     "PullRequestMakerStep",
     "CoverageComparisonStep",
     "CoverageComparisonReducedStep",
+    "ReducedAnnotationStep",
     "RunStep",
     "AdoptedRunStep",
 ]

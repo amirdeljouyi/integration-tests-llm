@@ -250,6 +250,8 @@ class AdoptedFilterStep(Step):
                 sut_jar=ctx.sut_jar,
                 log_file=adopt_compile_log,
                 repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
                 max_rounds=self.pipeline.args.dep_rounds,
             )
             if not ok_adopt:
@@ -281,4 +283,3 @@ class AdoptedFilterStep(Step):
                 print(f'[agt] adopted-covfilter: FAIL (see {cov_log})')
                 print("[agt][ADOPTED-COVFILTER-TAIL]\n" + cov_tail)
         return True
-

@@ -39,6 +39,14 @@ def run_generate_reduced_app(
     )
 
 
+def _find_existing_delta_csv(base_dir: Path, names: List[str]) -> Optional[Path]:
+    for name in names:
+        cand = base_dir / name
+        if cand.exists():
+            return cand
+    return None
+
+
 class ReduceStep(Step):
     step_names = ("reduce",)
 
@@ -46,7 +54,10 @@ class ReduceStep(Step):
         if not self.should_run():
             return True
         reduced_root = Path(self.pipeline.args.reduced_out)
-        test_deltas_csv = self.pipeline.covfilter_out_root / ctx.target_id / "test_deltas_kept.csv"
+        test_deltas_csv = _find_existing_delta_csv(
+            self.pipeline.covfilter_out_root / ctx.target_id,
+            ["test_deltas_kept.csv", "tests_deltas_kept.csv"],
+        )
         generated_test_src = first_test_source_for_fqcn(ctx.final_sources, ctx.generated_test_fqcn)
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(f'[agt] reduce: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
@@ -57,11 +68,11 @@ class ReduceStep(Step):
         if not generated_test_src or not generated_test_src.exists():
             print(f'[agt] reduce: Skip (missing generated test source): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True
-        if not test_deltas_csv.exists():
-            print(f'[agt] reduce: Skip (missing test_deltas_kept.csv): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+        if not test_deltas_csv:
+            print(f'[agt] reduce: Skip (missing test(s)_deltas_kept.csv): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True
 
-        reduced_out = reduced_root / ctx.target_id
+        reduced_out = reduced_root / "auto" / ctx.target_id
         reduced_log = self.pipeline.logs_dir / f"{ctx.target_id}.reduce.log"
         top_n = max(1, min(self.pipeline.args.reduce_max_tests, 100))
         print(f'[agt] Reducing AGT tests (top {top_n}): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
@@ -105,10 +116,13 @@ class AdoptedReduceStep(Step):
             return True
 
         for variant, adopted_src in variants:
-            test_deltas_csv = self.pipeline.adopted_covfilter_out_root / variant / ctx.target_id / "test_deltas_kept.csv"
-            if not test_deltas_csv.exists():
+            test_deltas_csv = _find_existing_delta_csv(
+                self.pipeline.adopted_covfilter_out_root / variant / ctx.target_id,
+                ["test_deltas_kept.csv", "tests_deltas_kept.csv"],
+            )
+            if not test_deltas_csv:
                 print(
-                    f'[agt] adopted-reduce: Skip (missing test_deltas_kept.csv): repo="{ctx.repo}" fqcn="{ctx.fqcn}" variant="{variant}"'
+                    f'[agt] adopted-reduce: Skip (missing test(s)_deltas_kept.csv): repo="{ctx.repo}" fqcn="{ctx.fqcn}" variant="{variant}"'
                 )
                 continue
             reduced_out = self.pipeline.adopted_reduced_out_root / variant / ctx.target_id

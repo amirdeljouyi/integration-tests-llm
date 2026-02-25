@@ -37,6 +37,8 @@ def run_coverage_for_test(
     tool_jar: Path,
     timeout_ms: int,
     repo_root_for_deps: Optional[Path],
+    module_rel: str,
+    build_tool: str,
     summary_csv: Path,
     max_rounds: int = 3,
     compile_sources: Optional[list[Path]] = None,
@@ -49,6 +51,8 @@ def run_coverage_for_test(
             sut_jar=sut_jar,
             log_file=log_file,
             repo_root_for_deps=repo_root_for_deps,
+            module_rel=module_rel,
+            build_tool=build_tool,
             max_rounds=max_rounds,
         )
         if not ok_compile:
@@ -93,6 +97,9 @@ def run_coverage_for_test(
         jacoco_cli=jacoco_cli,
         target_fqcn=fqcn,
         coverage_tmp_dir=build_dir,
+        repo_root_for_deps=repo_root_for_deps,
+        module_rel=module_rel,
+        build_tool=build_tool,
     )
 
     write_coverage_row(
@@ -139,6 +146,8 @@ class CoverageComparisonStep(Step):
                 tool_jar=tool_jar,
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
                 summary_csv=self.pipeline.coverage_compare_csv,
                 compile_sources=None,
             )
@@ -159,6 +168,8 @@ class CoverageComparisonStep(Step):
                 tool_jar=tool_jar,
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
                 summary_csv=self.pipeline.coverage_compare_csv,
                 compile_sources=None,
             )
@@ -181,6 +192,8 @@ class CoverageComparisonStep(Step):
                 tool_jar=tool_jar,
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
                 summary_csv=self.pipeline.coverage_compare_csv,
                 compile_sources=[adopted_src],
             )
@@ -226,6 +239,8 @@ class CoverageComparisonReducedStep(Step):
                 tool_jar=tool_jar,
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
                 summary_csv=self.pipeline.coverage_compare_reduced_csv,
                 compile_sources=compile_sources,
             )
@@ -250,6 +265,8 @@ class CoverageComparisonReducedStep(Step):
                 tool_jar=tool_jar,
                 timeout_ms=self.pipeline.args.timeout_ms,
                 repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
                 summary_csv=self.pipeline.coverage_compare_reduced_csv,
                 compile_sources=[reduced_src],
             )
