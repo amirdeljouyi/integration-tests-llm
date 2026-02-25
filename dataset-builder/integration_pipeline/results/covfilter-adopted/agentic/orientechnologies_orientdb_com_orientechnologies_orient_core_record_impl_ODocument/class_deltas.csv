@@ -1,0 +1,4 @@
+class_name,added_lines,added_methods,added_branches,added_instructions
+com.orientechnologies.orient.core.record.impl.ODocument,29,3,8,120
+com.orientechnologies.orient.core.record.impl.ODocumentEntry,11,1,0,42
+com.orientechnologies.orient.core.record.ORecordAbstract,10,1,0,36

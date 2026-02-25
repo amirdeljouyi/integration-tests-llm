@@ -1,0 +1,2 @@
+test_selector
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError

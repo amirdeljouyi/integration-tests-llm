@@ -1,0 +1,198 @@
+package io.quarkus.qute.deployment;
+
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+
+import java.io.File;
+import java.nio.charset.Charset;
+import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.Stack;
+import java.util.TreeSet;
+import java.util.Vector;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
+
+import org.jboss.jandex.AnnotationInstance;
+import org.jboss.jandex.AnnotationTarget;
+import org.jboss.jandex.ClassInfo;
+import org.jboss.jandex.ClassType;
+import org.jboss.jandex.DotName;
+import org.jboss.jandex.EmptyIndex;
+import org.jboss.jandex.Index;
+import org.jboss.jandex.IndexView;
+import org.jboss.jandex.MethodInfo;
+import org.jboss.jandex.PrimitiveType;
+import org.jboss.jandex.StackedIndex;
+import org.jboss.jandex.Type;
+import org.jboss.jandex.TypeVariable;
+import org.jboss.jandex.WildcardType;
+import org.junit.jupiter.api.Test;
+
+import io.quarkus.arc.deployment.AutoAddScopeBuildItem;
+import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
+import io.quarkus.arc.deployment.SynthesisFinishedBuildItem;
+import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
+import io.quarkus.arc.processor.BeanDeployment;
+import io.quarkus.arc.processor.BeanResolver;
+import io.quarkus.arc.processor.InjectionPointInfo;
+import io.quarkus.builder.BuildContext;
+import io.quarkus.deployment.BuildProducerImpl;
+import io.quarkus.deployment.annotations.BuildProducer;
+import io.quarkus.deployment.builditem.ServiceStartBuildItem;
+import io.quarkus.deployment.dev.AlwaysFalsePredicate;
+import io.quarkus.deployment.pkg.NativeConfig;
+import io.quarkus.qute.Engine;
+import io.quarkus.qute.Expression;
+import io.quarkus.qute.Template;
+import io.quarkus.qute.deployment.TemplatesAnalysisBuildItem.TemplateAnalysis;
+import io.quarkus.qute.runtime.QuteConfig;
+import io.quarkus.qute.runtime.QuteRecorder;
+
+public class QuteProcessor_ESTest_Adopted_Agentic_Top5 {
+    @Test
+
+    /**
+     * This test added coverage 17.09% (295/1726 added lines among kept tests).
+     * Delta details: +45 methods, +54 branches, +1193 instructions.
+     * Full version of the covered block is here: <a href="https://github.com/quarkusio/quarkus/blob/main/independent-projects/arc/processor/src/main/java/io/quarkus/arc/processor/DotNames.java#L81-L81">DotNames.java (lines 81-81)</a>
+     * Covered Lines:
+     * <pre><code>
+     * <span style="background-color:#fff3b0;">    private static final ComputingCache&lt;String, DotName&gt; NAMES = new ComputingCache&lt;&gt;(DotNames::create);</span>
+     * </code></pre>
+     * Full version of the covered block is here: <a href="https://github.com/quarkusio/quarkus/blob/main/extensions/qute/deployment/src/main/java/io/quarkus/qute/deployment/QuteProcessor.java#L3025-L3027">QuteProcessor$MatchResult.java (lines 3025-3027)</a>
+     * Covered Lines:
+     * <pre><code>
+     * <span style="background-color:#fff3b0;">        MatchResult(AssignabilityCheck assignabilityCheck) {</span>
+     * <span style="background-color:#fff3b0;">            this.assignabilityCheck = assignabilityCheck;</span>
+     * <span style="background-color:#fff3b0;">        }</span>
+     * </code></pre>
+     * Additional covered classes omitted: 13
+     */
+    public void processLoopElementHintWithNullExpressionThrowsNPE() {
+        io.quarkus.qute.deployment.QuteProcessor.MatchResult matchResult = new io.quarkus.qute.deployment.QuteProcessor.MatchResult(((io.quarkus.qute.deployment.Types.AssignabilityCheck) (null)));
+        TypeVariable variable = TypeVariable.create("8LiOQgPN+)^-");
+        matchResult.setValues(((ClassInfo) (null)), variable);
+        Class<io.quarkus.qute.deployment.IncorrectExpressionBuildItem> incorrectClass = io.quarkus.qute.deployment.IncorrectExpressionBuildItem.class;
+        BuildProducerImpl<io.quarkus.qute.deployment.IncorrectExpressionBuildItem> incorrectProducer = new BuildProducerImpl<>(incorrectClass, ((BuildContext) (null)));
+        NullPointerException exception = assertThrows(NullPointerException.class, () -> io.quarkus.qute.deployment.QuteProcessor.processLoopElementHint(matchResult, ((IndexView) (null)), ((Expression) (null)), incorrectProducer));
+        boolean found = false;
+        for (StackTraceElement element : exception.getStackTrace()) {
+            if (element.getClassName().equals("io.quarkus.qute.deployment.QuteProcessor")) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found);
+    }
+
+    @Test
+    public void getNameOnInjectionPointThrowsIAEForInvalidType() {
+        ClassType characterType = ClassType.CHARACTER_CLASS;
+        LinkedHashSet<AnnotationInstance> qualifiers = new LinkedHashSet<>();
+        InjectionPointInfo.TypeAndQualifiers tq = new InjectionPointInfo.TypeAndQualifiers(characterType, qualifiers);
+        InjectionPointInfo ip = InjectionPointInfo.fromSyntheticInjectionPoint(tq);
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> io.quarkus.qute.deployment.QuteProcessor.getName(ip));
+        boolean found = false;
+        for (StackTraceElement element : exception.getStackTrace()) {
+            if (element.getClassName().equals("io.quarkus.qute.deployment.QuteProcessor")) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found);
+    }
+
+    @Test
+    public void initializeWithValidParamsButNonProxyRecorderThrowsIAE() {
+        io.quarkus.qute.deployment.QuteProcessor processor = new io.quarkus.qute.deployment.QuteProcessor();
+        Class<SyntheticBeanBuildItem> syntheticClass = SyntheticBeanBuildItem.class;
+        BuildContext buildContext = mock(BuildContext.class);
+        BuildProducerImpl<SyntheticBeanBuildItem> syntheticProducer = new BuildProducerImpl<>(syntheticClass, buildContext);
+        QuteRecorder recorder = new QuteRecorder();
+        Stack<io.quarkus.qute.deployment.TemplatePathBuildItem> templatePaths = new Stack<>();
+        io.quarkus.qute.deployment.EffectiveTemplatePathsBuildItem effectivePaths = new io.quarkus.qute.deployment.EffectiveTemplatePathsBuildItem(templatePaths);
+        HashMap<String, List<String>> variants = new HashMap<>();
+        io.quarkus.qute.deployment.TemplateVariantsBuildItem templateVariants = new io.quarkus.qute.deployment.TemplateVariantsBuildItem(variants);
+        Optional<io.quarkus.qute.deployment.TemplateVariantsBuildItem> optionalVariants = Optional.of(templateVariants);
+        LinkedList<io.quarkus.qute.deployment.TemplateRootBuildItem> roots = new LinkedList<>();
+        io.quarkus.qute.deployment.TemplateRootsBuildItem templateRoots = processor.collectTemplateRoots(roots);
+        Stack<io.quarkus.qute.deployment.TemplatePathExcludeBuildItem> excludes = new Stack<>();
+        io.quarkus.qute.deployment.TemplatePathExcludeBuildItem exclude = new io.quarkus.qute.deployment.TemplatePathExcludeBuildItem(((String) (null)));
+        excludes.add(exclude);
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> processor.initialize(syntheticProducer, recorder, effectivePaths, optionalVariants, templateRoots, excludes));
+        boolean found = false;
+        for (StackTraceElement element : exception.getStackTrace()) {
+            if (element.getClassName().equals("SyntheticBeanBuildItem$ExtendedBeanConfigurator")) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found);
+    }
+
+    @Test
+    public void extractMatchTypeReturnsNullWhenNoMatch() {
+        LinkedHashSet<Type> candidates = new LinkedHashSet<>();
+        DotName targetName = DotName.FLOAT_CLASS_NAME;
+        PrimitiveType doublePrimitive = PrimitiveType.DOUBLE;
+        candidates.add(doublePrimitive);
+        Function<Type, Type> extractor = QuteProcessor.MAP_ENTRY_EXTRACT_FUN;
+        Type result = io.quarkus.qute.deployment.QuteProcessor.extractMatchType(candidates, targetName, extractor);
+        assertNull(result);
+    }
+
+    @Test
+    public void validateExpressionsWithNullBeanDeploymentCollectionsThrowsNPE() {
+        io.quarkus.qute.deployment.QuteProcessor processor = new io.quarkus.qute.deployment.QuteProcessor();
+        AlwaysFalsePredicate<io.quarkus.qute.deployment.TypeCheckExcludeBuildItem.TypeCheck> alwaysFalse = new AlwaysFalsePredicate<>();
+        io.quarkus.qute.deployment.TypeCheckExcludeBuildItem excludeItem = new io.quarkus.qute.deployment.TypeCheckExcludeBuildItem(alwaysFalse, true);
+        List<io.quarkus.qute.deployment.TypeCheckExcludeBuildItem> excludes = List.of(excludeItem, excludeItem, excludeItem, excludeItem, excludeItem);
+        Class<io.quarkus.qute.deployment.IncorrectExpressionBuildItem> incorrectClass = io.quarkus.qute.deployment.IncorrectExpressionBuildItem.class;
+        BuildContext buildContext = mock(BuildContext.class);
+        BuildProducerImpl<io.quarkus.qute.deployment.IncorrectExpressionBuildItem> incorrectProducer = new BuildProducerImpl<>(incorrectClass, buildContext);
+        BeanDeployment beanDeployment = mock(BeanDeployment.class);
+        doReturn(((BeanResolver) (null))).when(beanDeployment).getBeanResolver();
+        doReturn(((Collection<?>) (null))).when(beanDeployment).getBeans();
+        doReturn(((Collection<?>) (null))).when(beanDeployment).getInjectionPoints();
+        doReturn(((Collection<?>) (null))).when(beanDeployment).getObservers();
+        SynthesisFinishedBuildItem synthesisFinished = new SynthesisFinishedBuildItem(beanDeployment);
+        ArrayList<io.quarkus.qute.deployment.CheckedTemplateBuildItem> checkedTemplates = new ArrayList<>();
+        Stack<io.quarkus.qute.deployment.TemplateDataBuildItem> templateDataItems = new Stack<>();
+        io.quarkus.qute.deployment.TemplatesAnalysisBuildItem analyses = new io.quarkus.qute.deployment.TemplatesAnalysisBuildItem(((List<TemplateAnalysis>) (null)));
+        LinkedHashSet<DotName> beanExclusions = new LinkedHashSet<>();
+        BeanArchiveIndexBuildItem beanArchiveIndex = new BeanArchiveIndexBuildItem(((IndexView) (null)), ((IndexView) (null)), beanExclusions);
+        ArrayList<io.quarkus.qute.deployment.TemplateExtensionMethodBuildItem> extensionMethods = new ArrayList<>();
+        Class<io.quarkus.qute.deployment.ImplicitValueResolverBuildItem> implicitClass = io.quarkus.qute.deployment.ImplicitValueResolverBuildItem.class;
+        BuildContext buildContext1 = mock(BuildContext.class);
+        BuildProducerImpl<io.quarkus.qute.deployment.ImplicitValueResolverBuildItem> implicitProducer = new BuildProducerImpl<>(implicitClass, buildContext1);
+        NativeConfig nativeConfig = mock(NativeConfig.class);
+        NullPointerException exception = assertThrows(NullPointerException.class, () -> processor.validateExpressions(analyses, beanArchiveIndex, extensionMethods, excludes, incorrectProducer, implicitProducer, ((BuildProducer<io.quarkus.qute.deployment.TemplateExpressionMatchesBuildItem>) (null)), synthesisFinished, checkedTemplates, templateDataItems, ((QuteConfig) (null)), nativeConfig, ((List<io.quarkus.qute.deployment.TemplateGlobalBuildItem>) (null))));
+        boolean found = false;
+        for (StackTraceElement element : exception.getStackTrace()) {
+            if (element.getClassName().equals("java.util.Objects")) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found);
+    }
+}

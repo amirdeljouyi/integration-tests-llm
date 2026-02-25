@@ -1,0 +1,2 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+org.jboss.as.connector.subsystems.datasources.Constants_ESTest#testCreatesConstants,2312,443,274,10424

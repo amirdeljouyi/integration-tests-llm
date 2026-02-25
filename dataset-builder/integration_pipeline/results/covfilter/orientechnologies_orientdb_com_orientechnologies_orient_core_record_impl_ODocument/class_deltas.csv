@@ -1,0 +1,17 @@
+class_name,added_lines,added_methods,added_branches,added_instructions
+com.orientechnologies.orient.core.record.impl.ODocument,32,4,7,148
+com.orientechnologies.orient.core.record.impl.ODocumentEntry,11,1,0,42
+com.orientechnologies.orient.core.record.ORecordAbstract,10,1,0,36
+com.orientechnologies.common.io.OIOUtils,4,1,2,17
+com.orientechnologies.orient.core.OrientShutdownHook,1,0,0,4
+com.orientechnologies.common.log.OLogManager,0,0,-3,-8
+com.orientechnologies.orient.core.index.OIndexes,0,0,-1,0
+com.orientechnologies.orient.core.sharding.auto.OAutoShardingIndexFactory,-1,-1,0,-2
+com.orientechnologies.common.directmemory.OPointer,-2,-2,0,-6
+com.orientechnologies.orient.core.Orient,-2,0,0,-4
+com.orientechnologies.common.concur.lock.ScalableRWLock$ReadersEntry,-3,-1,0,-8
+com.orientechnologies.orient.core.storage.impl.local.paginated.ORecordSerializationContext$1,-4,-1,0,-10
+com.orientechnologies.orient.core.db.OScenarioThreadLocal$1,-4,-1,0,-10
+com.orientechnologies.common.concur.lock.ScalableRWLock,-4,-1,0,-13
+com.orientechnologies.common.directmemory.ODirectMemoryAllocator,-11,-2,-5,-31
+com.orientechnologies.common.directmemory.OByteBufferPool,-12,-2,-4,-41

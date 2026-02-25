@@ -1,0 +1,7 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testCollectNamespaceExpressions,0,0,0,0
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testCollectNamespaceExpressionsWithNullAnalysisThrowsNpe,0,0,0,0
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testIgnorePatternFromZoneIds,0,0,0,0
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testTemplateDataIgnorePattern,0,0,0,0
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testCodeGetNameReturnsEnumName,3,2,0,13
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testFindTemplatePathNotFoundReturnsNull,13,5,3,35

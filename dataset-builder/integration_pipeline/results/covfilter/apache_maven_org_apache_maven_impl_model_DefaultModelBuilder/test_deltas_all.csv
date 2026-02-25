@@ -1,0 +1,7 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+org.apache.maven.impl.model.DefaultModelBuilderTest#testCiFriendlyVersionWithProfiles,0,0,0,0
+org.apache.maven.impl.model.DefaultModelBuilderTest#testDirectoryPropertiesInProfilesAndRepositories,0,0,0,0
+org.apache.maven.impl.model.DefaultModelBuilderTest#testMergeRepositories,0,0,0,0
+org.apache.maven.impl.model.DefaultModelBuilderTest#testMissingDependencyGroupIdInference,0,0,0,0
+org.apache.maven.impl.model.DefaultModelBuilderTest#testPropertiesAndProfiles,0,0,0,0
+org.apache.maven.impl.model.DefaultModelBuilderTest#testRepositoryUrlInterpolationWithProfiles,0,0,0,0

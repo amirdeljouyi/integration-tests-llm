@@ -1,0 +1,5 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted#createDocumentFromByteArray_throwsNoClassDefFoundError,5,2,1,30
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted#validateEmbedded_withNullPropertyAndNonNullValue_throwsNPE,5,2,3,13
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted#createDocumentFromDataInputStream_throwsNoClassDefFoundError,10,2,1,53
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted#validateLinkCollection_withNullProperty_throwsNPE,11,1,-1,41

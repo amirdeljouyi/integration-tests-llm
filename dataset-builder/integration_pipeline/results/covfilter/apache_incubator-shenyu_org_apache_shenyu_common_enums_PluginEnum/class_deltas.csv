@@ -1,0 +1,14 @@
+class_name,added_lines,added_methods,added_branches,added_instructions
+org.slf4j.LoggerFactory,84,18,23,240
+org.slf4j.helpers.SubstituteLoggerFactory,11,5,0,37
+org.slf4j.helpers.Util,9,3,2,20
+org.slf4j.helpers.NOP_FallbackServiceProvider,5,2,0,21
+org.slf4j.helpers.SubstituteServiceProvider,5,2,0,21
+org.slf4j.helpers.BasicMarkerFactory,3,1,0,8
+org.slf4j.helpers.BasicMDCAdapter,3,1,0,14
+org.slf4j.helpers.NOPLoggerFactory,2,1,0,3
+org.slf4j.helpers.ThreadLocalMapOfStacks,2,1,0,8
+org.slf4j.helpers.LegacyAbstractLogger,1,1,0,3
+org.slf4j.helpers.BasicMDCAdapter$1,1,1,0,6
+org.slf4j.helpers.AbstractLogger,1,1,0,3
+org.slf4j.helpers.NOPMDCAdapter,1,1,0,3

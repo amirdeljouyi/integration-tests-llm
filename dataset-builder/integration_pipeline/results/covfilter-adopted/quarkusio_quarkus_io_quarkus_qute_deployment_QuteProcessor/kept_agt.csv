@@ -1,0 +1,3 @@
+test_selector
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testCodeGetNameReturnsEnumName
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testFindTemplatePathNotFoundReturnsNull

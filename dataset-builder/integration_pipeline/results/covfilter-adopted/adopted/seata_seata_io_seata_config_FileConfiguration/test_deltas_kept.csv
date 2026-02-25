@@ -1,0 +1,5 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+org.apache.seata.config.FileConfiguration_ESTest_Adopted#evo_constructorWithFileNameAndReloadFlag,30,6,14,131
+org.apache.seata.config.FileConfiguration_ESTest_Adopted#evo_putIfAbsentAndRemoveWithTimeouts,176,39,62,855
+org.apache.seata.config.FileConfiguration_ESTest_Adopted#evo_latestConfigAndOperations,264,60,102,1171
+org.apache.seata.config.FileConfiguration_ESTest_Adopted#evo_putConfigAndCacheListenerFlow,296,73,107,1259

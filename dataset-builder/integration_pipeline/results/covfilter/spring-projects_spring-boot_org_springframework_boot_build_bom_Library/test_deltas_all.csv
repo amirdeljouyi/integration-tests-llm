@@ -1,0 +1,5 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+org.springframework.boot.build.bom.LibraryTests#getLinkRootNameWhenNoneSpecified,0,0,0,0
+org.springframework.boot.build.bom.LibraryTests#getLinkRootNameWhenSpecified,0,0,0,0
+org.springframework.boot.build.bom.LibraryTests#toMajorMinorGenerationWithRelease,0,0,0,0
+org.springframework.boot.build.bom.LibraryTests#toMajorMinorGenerationWithSnapshot,0,0,0,0

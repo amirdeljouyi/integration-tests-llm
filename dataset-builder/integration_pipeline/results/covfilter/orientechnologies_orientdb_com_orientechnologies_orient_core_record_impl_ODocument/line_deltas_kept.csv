@@ -1,0 +1,12 @@
+test_selector,class_name,newly_covered_lines,upgraded_to_full_lines
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTaking2ArgumentsThrowsNoClassDefFoundError,com.orientechnologies.orient.core.record.ORecordAbstract,356-365,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTaking2ArgumentsThrowsNoClassDefFoundError,com.orientechnologies.common.log.OLogManager,114-115,113
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTaking2ArgumentsThrowsNoClassDefFoundError,com.orientechnologies.orient.core.record.impl.ODocument,246-249;1141;1143;1145;1147;1149-1151;1153-1154;1156-1159;1163;1165-1166;1168-1169;1171;3596;3599,2658;3594
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTaking2ArgumentsThrowsNoClassDefFoundError,com.orientechnologies.orient.core.OrientShutdownHook,46;48,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTakingInputStreamThrowsNoClassDefFoundError,com.orientechnologies.orient.core.record.ORecordAbstract,356-365,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTakingInputStreamThrowsNoClassDefFoundError,com.orientechnologies.common.io.OIOUtils,208;210-211;213,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTakingInputStreamThrowsNoClassDefFoundError,com.orientechnologies.common.log.OLogManager,114-115,113
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTakingInputStreamThrowsNoClassDefFoundError,com.orientechnologies.orient.core.record.impl.ODocument,179-184;1141;1143;1145;1147;1149-1151;1153-1154;1156-1159;1163;1165-1166;1168-1169;1171;3596;3599,3594
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testFailsToCreateODocumentTakingInputStreamThrowsNoClassDefFoundError,com.orientechnologies.orient.core.OrientShutdownHook,46;48,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testValidateEmbedded,com.orientechnologies.orient.core.record.impl.ODocument,1028,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest#testValidateLinkCollectionThrowsNullPointerException,com.orientechnologies.orient.core.record.impl.ODocumentEntry,70-80,

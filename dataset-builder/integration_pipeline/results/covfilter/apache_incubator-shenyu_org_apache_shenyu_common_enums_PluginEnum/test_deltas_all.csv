@@ -1,0 +1,13 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetCodeReturningNegative,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetCodeReturningPositive,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetCodeReturningZero,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetName,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetPluginEnumByNameReturningPluginEnumWhereGetCodeIsPositive,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetPluginEnumByNameReturningPluginEnumWhereGetCodeIsZero,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetRole,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetUpstreamNames,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testValueOfReturningPluginEnumWhereGetCodeIsNegative,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testValueOfReturningPluginEnumWhereGetCodeIsPositive,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testValueOfReturningPluginEnumWhereGetCodeIsZero,128,38,25,387
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testValuesReturningNonEmptyArray,128,38,25,387

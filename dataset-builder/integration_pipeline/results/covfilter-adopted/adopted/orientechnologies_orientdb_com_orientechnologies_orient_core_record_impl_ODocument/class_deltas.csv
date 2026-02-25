@@ -1,0 +1,6 @@
+class_name,added_lines,added_methods,added_branches,added_instructions
+com.orientechnologies.orient.core.record.impl.ODocument,14,3,3,75
+com.orientechnologies.orient.core.record.impl.ODocumentEntry,11,1,0,42
+com.orientechnologies.common.io.OIOUtils,4,1,2,17
+com.orientechnologies.orient.core.sharding.auto.OAutoShardingIndexFactory,1,1,0,2
+com.orientechnologies.orient.core.index.OIndexes,0,0,1,0

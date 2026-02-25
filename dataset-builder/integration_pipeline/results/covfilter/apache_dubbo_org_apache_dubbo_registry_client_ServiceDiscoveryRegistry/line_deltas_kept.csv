@@ -1,0 +1,15 @@
+test_selector,class_name,newly_covered_lines,upgraded_to_full_lines
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.rpc.RpcServiceContext,39;604-605;612,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.common.timer.HashedWheelTimer,270;274-275;278,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.common.threadlocal.InternalThreadLocalMap,31;33;35;42;55-56;59;96-97;101;108-110;113-114;121-125;157-161;189-193;195,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.common.URL,129-133,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.rpc.RpcContext$2,67,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.rpc.RpcContext$1,59,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.rpc.RpcContext$6,102,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.rpc.RpcContext$5,91;94,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.rpc.RpcContext$4,83,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.rpc.RpcContext$3,75,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.common.threadlocal.InternalThreadLocal,36;40-42;89;91-93;98-99;120-123;126;140;142;145;147-149,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.common.utils.CollectionUtils,,267
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.registry.client.InstanceAddressURL,58-59;67-71;104-106;111;210;212;214;216;218;222-224;232-233;645;648,
+org.apache.dubbo.registry.client.ServiceDiscoveryRegistry_ESTest#testSupportsThrowsNoClassDefFoundError,org.apache.dubbo.rpc.RpcContext,53;58;66;74;82;90;101;121;123;205,

@@ -1,0 +1,6 @@
+class_name,added_lines,added_methods,added_branches,added_instructions
+io.quarkus.builder.item.BuildItem,5,1,2,14
+io.quarkus.qute.deployment.TemplatesAnalysisBuildItem,4,2,0,9
+io.quarkus.qute.deployment.QuteProcessor$Code,3,2,0,13
+io.quarkus.builder.item.SimpleBuildItem,2,1,0,3
+io.quarkus.qute.deployment.QuteProcessor,2,1,1,9

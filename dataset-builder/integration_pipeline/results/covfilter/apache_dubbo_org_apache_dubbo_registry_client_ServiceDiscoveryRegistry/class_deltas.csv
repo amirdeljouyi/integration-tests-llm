@@ -1,0 +1,16 @@
+class_name,added_lines,added_methods,added_branches,added_instructions
+org.apache.dubbo.common.threadlocal.InternalThreadLocalMap,31,8,9,105
+org.apache.dubbo.registry.client.InstanceAddressURL,23,5,11,74
+org.apache.dubbo.common.threadlocal.InternalThreadLocal,21,5,3,65
+org.apache.dubbo.rpc.RpcContext,10,3,0,39
+org.apache.dubbo.common.URL,5,1,0,18
+org.apache.dubbo.rpc.RpcServiceContext,4,3,1,11
+org.apache.dubbo.common.timer.HashedWheelTimer,4,1,1,12
+org.apache.dubbo.rpc.RpcContext$5,2,2,0,7
+org.apache.dubbo.rpc.RpcContext$2,1,1,0,3
+org.apache.dubbo.rpc.RpcContext$1,1,1,0,3
+org.apache.dubbo.rpc.RpcContext$6,1,1,0,3
+org.apache.dubbo.rpc.RpcContext$4,1,1,0,3
+org.apache.dubbo.rpc.RpcContext$3,1,1,0,3
+org.apache.dubbo.common.utils.CollectionUtils,0,0,1,0
+org.apache.dubbo.common.utils.StringUtils,0,0,3,2

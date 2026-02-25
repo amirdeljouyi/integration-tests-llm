@@ -1,0 +1,10 @@
+test_selector,class_name,newly_covered_lines,upgraded_to_full_lines
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#createDocumentFromByteArray_throwsNoClassDefFoundError,com.orientechnologies.orient.core.sharding.auto.OAutoShardingIndexFactory,80,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#createDocumentFromByteArray_throwsNoClassDefFoundError,com.orientechnologies.orient.core.index.OIndexes,,162
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#createDocumentFromByteArray_throwsNoClassDefFoundError,com.orientechnologies.orient.core.record.impl.ODocument,168-171,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#testCopyToCopiesEmptyFieldsTypesAndOwners,com.orientechnologies.orient.core.record.ORecordAbstract,356-365,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#testCopyToCopiesEmptyFieldsTypesAndOwners,com.orientechnologies.orient.core.record.impl.ODocument,1141;1143;1145;1147;1149-1151;1153-1154;1156-1159;1163;1165-1166;1168-1169;1171;3596;3599,3594
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#validateEmbedded_withNullPropertyAndNonNullValue_throwsNPE,com.orientechnologies.orient.core.sharding.auto.OAutoShardingIndexFactory,80,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#validateEmbedded_withNullPropertyAndNonNullValue_throwsNPE,com.orientechnologies.orient.core.index.OIndexes,,162
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#validateEmbedded_withNullPropertyAndNonNullValue_throwsNPE,com.orientechnologies.orient.core.record.impl.ODocument,1028-1029;1037;1119,
+com.orientechnologies.orient.core.record.impl.ODocument_ESTest_Adopted_Agentic#validateLinkCollection_withNullProperty_throwsNPE,com.orientechnologies.orient.core.record.impl.ODocumentEntry,70-80,

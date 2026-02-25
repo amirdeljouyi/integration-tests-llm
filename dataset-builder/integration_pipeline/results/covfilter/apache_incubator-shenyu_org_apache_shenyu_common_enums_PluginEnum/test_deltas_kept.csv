@@ -1,0 +1,2 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+org.apache.shenyu.common.enums.PluginEnum_ESTest#testGetCodeReturningNegative,128,38,25,387

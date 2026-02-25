@@ -1,0 +1,3 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+org.jboss.as.connector.subsystems.datasources.Constants_ESTest_Adopted#jaspiAuthModuleConstantMatchesIfPresent,0,0,0,0
+org.jboss.as.connector.subsystems.datasources.Constants_ESTest_Adopted#shouldInstantiateConstantsWithoutException,2128,384,239,9805

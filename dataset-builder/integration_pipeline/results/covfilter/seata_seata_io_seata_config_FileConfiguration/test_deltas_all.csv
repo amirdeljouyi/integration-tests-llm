@@ -1,0 +1,13 @@
+test_selector,added_lines,added_methods,added_branches,added_instructions
+io.seata.config.FileConfiguration_ESTest#testCreatesFileConfigurationTakingNoArguments0,7,5,0,25
+io.seata.config.FileConfiguration_ESTest#testCreatesFileConfigurationTakingNoArguments2,7,5,0,25
+io.seata.config.FileConfiguration_ESTest#testPutConfigThrowsNullPointerException,7,5,0,25
+io.seata.config.FileConfiguration_ESTest#testGetTypeNameAndCreatesFileConfigurationTakingNoArguments,7,5,0,21
+io.seata.config.FileConfiguration_ESTest#testCreatesFileConfigurationTakingConfiguration,7,5,0,20
+io.seata.config.FileConfiguration_ESTest#testCreatesFileConfigurationTakingNoArguments3,9,5,3,24
+io.seata.config.FileConfiguration_ESTest#testCreatesFileConfigurationTakingNoArguments1,13,5,3,45
+io.seata.config.FileConfiguration_ESTest#testGetTypeNameAndCreatesFileConfigurationTakingStringAndRemoveConfig,45,12,16,202
+io.seata.config.FileConfiguration_ESTest#testCreatesFileConfigurationTaking2Arguments,49,15,18,209
+io.seata.config.FileConfiguration_ESTest#testGetLatestConfigReturningNonEmptyString,194,51,64,926
+io.seata.config.FileConfiguration_ESTest#testGetLatestConfig,290,74,107,1279
+io.seata.config.FileConfiguration_ESTest#testPutConfig,318,84,112,1353

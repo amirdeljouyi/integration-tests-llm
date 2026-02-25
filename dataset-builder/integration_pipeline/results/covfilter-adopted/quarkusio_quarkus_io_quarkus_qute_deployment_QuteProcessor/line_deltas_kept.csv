@@ -1,0 +1,6 @@
+test_selector,class_name,newly_covered_lines,upgraded_to_full_lines
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testCodeGetNameReturnsEnumName,io.quarkus.qute.deployment.QuteProcessor$Code,3858;3860;3865,
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testFindTemplatePathNotFoundReturnsNull,io.quarkus.builder.item.BuildItem,14-16;21;24,
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testFindTemplatePathNotFoundReturnsNull,io.quarkus.builder.item.SimpleBuildItem,10-11,
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testFindTemplatePathNotFoundReturnsNull,io.quarkus.qute.deployment.TemplatesAnalysisBuildItem,24-26;29,
+io.quarkus.qute.deployment.QuteProcessor_ESTest_Adopted#testFindTemplatePathNotFoundReturnsNull,io.quarkus.qute.deployment.QuteProcessor,1942;1947,
