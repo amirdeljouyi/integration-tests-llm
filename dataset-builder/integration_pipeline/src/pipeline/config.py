@@ -20,7 +20,7 @@ class PipelineArgs:
     out_dir: str = "tmp"
     build_dir: str = "build/agt"
     includes: str = "*"
-    dep_rounds: int = 3
+    dep_rounds: int = 20
     tool_jar: str = "coverage-filter-1.0-SNAPSHOT.jar"
     step: str = "all"
     timeout_ms: int = 240_000
@@ -74,8 +74,12 @@ class PipelineConfig:
     adopted_fix_script: Path
     pr_template: Path
     pr_out_root: Path
+    compile_summary_csv: Path
     summary_csv: Path
     adopted_summary_csv: Path
+    coverage_errors_csv: Path
+    coverage_zero_hit_csv: Path
+    coverage_report_issues_csv: Path
     coverage_compare_csv: Path
     coverage_compare_reduced_csv: Path
     covfilter_allow: Optional[Set[Tuple[str, str]]]
@@ -147,6 +151,16 @@ def build_pipeline_config(args: PipelineArgs) -> PipelineConfig:
     pr_template = Path("docs/PR_TEMPLATE.md")
     pr_out_root = Path("results/pr")
 
+    compile_summary_csv = Path("results/compile/compile_summary.csv")
+    compile_header = (
+        "repo,fqcn,variant,status,selected,"
+        "requested_test_count,requested_test_cases,"
+        "final_source_count,resolved_support_source_count,"
+        "class_origin,class_origin_detail,"
+        "problem_category,problem_detail,log_file\n"
+    )
+    _ensure_csv_header(compile_summary_csv, compile_header, reset=args.step in ("compile", "all"))
+
     summary_csv = Path("results/coverage/coverage_summary.csv")
     header = (
         "repo,fqcn,variant,"
@@ -158,6 +172,25 @@ def build_pipeline_config(args: PipelineArgs) -> PipelineConfig:
 
     adopted_summary_csv = Path("results/coverage/adopted_coverage_summary.csv")
     _ensure_csv_header(adopted_summary_csv, header, reset=args.step in ("adopted-run", "all"))
+
+    coverage_errors_csv = Path("results/coverage/coverage_errors.csv")
+    coverage_errors_header = (
+        "repo,fqcn,variant,test_fqcn,status,"
+        "error_category,error_detail,class_origin,class_origin_detail,log_file\n"
+    )
+    _ensure_csv_header(coverage_errors_csv, coverage_errors_header, reset=args.step in ("run", "all"))
+
+    coverage_diag_header = (
+        "repo,fqcn,variant,test_fqcn,status,"
+        "coverage_category,coverage_detail,"
+        "line_covered,line_total,branch_covered,branch_total,"
+        "class_origin,class_origin_detail,log_file\n"
+    )
+    coverage_zero_hit_csv = Path("results/coverage/coverage_zero_hit.csv")
+    _ensure_csv_header(coverage_zero_hit_csv, coverage_diag_header, reset=args.step in ("run", "all"))
+
+    coverage_report_issues_csv = Path("results/coverage/coverage_report_issues.csv")
+    _ensure_csv_header(coverage_report_issues_csv, coverage_diag_header, reset=args.step in ("run", "all"))
 
     coverage_compare_csv = Path("results/coverage/coverage_compare.csv")
     coverage_compare_reduced_csv = Path("results/coverage/coverage_compare_reduced.csv")
@@ -227,8 +260,12 @@ def build_pipeline_config(args: PipelineArgs) -> PipelineConfig:
         adopted_fix_script=adopted_fix_script,
         pr_template=pr_template,
         pr_out_root=pr_out_root,
+        compile_summary_csv=compile_summary_csv,
         summary_csv=summary_csv,
         adopted_summary_csv=adopted_summary_csv,
+        coverage_errors_csv=coverage_errors_csv,
+        coverage_zero_hit_csv=coverage_zero_hit_csv,
+        coverage_report_issues_csv=coverage_report_issues_csv,
         coverage_compare_csv=coverage_compare_csv,
         coverage_compare_reduced_csv=coverage_compare_reduced_csv,
         covfilter_allow=covfilter_allow,

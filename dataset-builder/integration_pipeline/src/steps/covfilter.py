@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from ..core.common import ensure_dir, shlex_join, write_text
+from ..core.java import compile_test_set_smart
 from ..pipeline.helpers import adopted_variants, first_test_source_for_fqcn, libs_dir_from_glob, test_fqcn_from_source
 from .base import Step
-from .compile import compile_test_set_smart
 
 if TYPE_CHECKING:
     from ..pipeline.pipeline import TargetContext

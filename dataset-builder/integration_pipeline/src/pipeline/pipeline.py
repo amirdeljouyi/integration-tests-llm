@@ -72,12 +72,54 @@ class Pipeline:
             if not ok:
                 continue
 
-        print("[agt] Done.")
-        print(f"[agt] Ran:     {self.ran}")
-        print(f"[agt] Skipped: {self.skipped}")
-        print(f"[agt] Exec files: {self.out_dir}")
-        print(f"[agt] Logs:      {self.logs_dir}")
+        self.print_step_summary()
         return 0
+
+    def print_step_summary(self) -> None:
+        step = (self.args.step or "all").strip()
+        print(f"[agt] {step} done.")
+        print(f"[agt] {step} ran:     {self.ran}")
+        print(f"[agt] {step} skipped: {self.skipped}")
+
+        artifact_lines = self._step_artifact_lines(step)
+        for label, value in artifact_lines:
+            print(f"[agt] {label}: {value}")
+
+    def _step_artifact_lines(self, step: str) -> List[Tuple[str, Path]]:
+        if step == "compile":
+            return [
+                ("Compile summary", self.compile_summary_csv),
+                ("Build dir", self.build_dir),
+                ("Logs", self.logs_dir),
+            ]
+        if step == "run":
+            return [
+                ("Coverage summary", self.summary_csv),
+                ("Coverage errors", self.coverage_errors_csv),
+                ("Coverage zero hit", self.coverage_zero_hit_csv),
+                ("Coverage report issues", self.coverage_report_issues_csv),
+                ("Logs", self.logs_dir),
+            ]
+        if step == "adopted-run":
+            return [
+                ("Adopted coverage summary", self.adopted_summary_csv),
+                ("Coverage errors", self.coverage_errors_csv),
+                ("Logs", self.logs_dir),
+            ]
+        if step == "coverage-comparison":
+            return [
+                ("Coverage compare", self.coverage_compare_csv),
+                ("Logs", self.logs_dir),
+            ]
+        if step == "coverage-comparison-reduced":
+            return [
+                ("Coverage compare reduced", self.coverage_compare_reduced_csv),
+                ("Logs", self.logs_dir),
+            ]
+        return [
+            ("Out dir", self.out_dir),
+            ("Logs", self.logs_dir),
+        ]
 
     def build_target_context(self, r: Dict[str, str]) -> Optional[TargetContext]:
         repo = (r.get("repo", "") or "").strip().strip('"')

@@ -7,6 +7,7 @@ import sys
 import subprocess
 from typing import TYPE_CHECKING
 
+from ..core.java import add_throws_exception_to_tests
 from .base import Step
 
 if TYPE_CHECKING:
@@ -75,64 +76,6 @@ def replace_extends(path, pattern, dry_run):
         return False
 
     return True
-
-
-def add_throws_exception_to_tests(path, dry_run):
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except OSError as exc:
-        print(f"error: failed to read {path}: {exc}", file=sys.stderr)
-        return False
-
-    changed = False
-    new_lines = []
-    pending_test = False
-    test_annotation = re.compile(
-        r"^\s*@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b"
-    )
-
-    for line in lines:
-        stripped = line.strip()
-        if test_annotation.match(stripped):
-            pending_test = True
-            new_lines.append(line)
-            continue
-
-        if pending_test:
-            if stripped.startswith("@"):
-                new_lines.append(line)
-                continue
-
-            if "throws" not in line and ")" in line:
-                updated = re.sub(r"\)\s*\{", ") throws Exception {", line)
-                if updated == line:
-                    updated = re.sub(r"\)\s*$", ") throws Exception", line)
-                if updated != line:
-                    changed = True
-                    new_lines.append(updated)
-                    pending_test = False
-                    continue
-
-            pending_test = False
-
-        new_lines.append(line)
-
-    if not changed:
-        return False
-
-    if dry_run:
-        return True
-
-    try:
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.writelines(new_lines)
-    except OSError as exc:
-        print(f"error: failed to write {path}: {exc}", file=sys.stderr)
-        return False
-
-    return True
-
 
 def main():
     parser = argparse.ArgumentParser(

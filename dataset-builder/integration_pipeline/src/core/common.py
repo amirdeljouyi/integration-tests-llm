@@ -170,6 +170,74 @@ def find_test_source_root(repo_root: Path) -> Optional[Path]:
     return candidates[0]
 
 
+def _looks_like_repo_class_dir(path: Path) -> bool:
+    parts = [part.lower() for part in path.parts]
+    name = parts[-1] if parts else ""
+    if "target" in parts and name.endswith("classes"):
+        return True
+    if len(parts) >= 4 and parts[-4:] in (
+        ["build", "classes", "java", "test"],
+        ["build", "classes", "java", "main"],
+        ["build", "classes", "kotlin", "test"],
+        ["build", "classes", "kotlin", "main"],
+    ):
+        return True
+    if len(parts) >= 3 and parts[-3:] in (
+        ["build", "resources", "test"],
+        ["build", "resources", "main"],
+    ):
+        return True
+    return False
+
+
+def candidate_repo_class_dirs(repo_root_for_deps: Optional[Path], module_rel: str) -> List[Path]:
+    if not repo_root_for_deps or not repo_root_for_deps.exists():
+        return []
+
+    rel = (module_rel or "").strip()
+    module_dir = repo_root_for_deps if not rel or rel in {".", "root"} else (repo_root_for_deps / rel)
+    roots: List[Path] = []
+    if module_dir.exists():
+        roots.append(module_dir)
+    if repo_root_for_deps not in roots:
+        roots.append(repo_root_for_deps)
+
+    candidates: List[Path] = []
+    rel_dirs = [
+        "target/test-classes",
+        "build/classes/java/test",
+        "build/classes/kotlin/test",
+        "build/resources/test",
+        "target/classes",
+        "build/classes/java/main",
+        "build/classes/kotlin/main",
+        "build/resources/main",
+    ]
+    seen: Set[Path] = set()
+    for root in roots:
+        for rel_dir in rel_dirs:
+            path = root / rel_dir
+            if not path.exists() or path in seen:
+                continue
+            seen.add(path)
+            candidates.append(path)
+
+    recursive_patterns = [
+        "**/target/*classes",
+        "**/build/classes/java/*",
+        "**/build/classes/kotlin/*",
+        "**/build/resources/*",
+    ]
+    for root in roots:
+        for pattern in recursive_patterns:
+            for path in sorted(root.glob(pattern)):
+                if not path.is_dir() or path in seen or not _looks_like_repo_class_dir(path):
+                    continue
+                seen.add(path)
+                candidates.append(path)
+    return candidates
+
+
 def extract_missing_symbols_from_javac_log(log_text: str) -> Set[str]:
     """
     Extract class names from common javac errors like:
@@ -188,12 +256,16 @@ def extract_missing_symbols_from_javac_log(log_text: str) -> Set[str]:
 
 def file_declares_type(java_path: Path, type_name: str) -> bool:
     """
-    Check if a java file declares 'class/interface/enum type_name'.
+    Check if a java file declares the requested top-level type.
     Lightweight text scan.
     """
     try:
         txt = java_path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         return False
-    pat = rf"^\s*(public\s+)?(final\s+)?(class|interface|enum)\s+{re.escape(type_name)}\b"
+    pat = (
+        rf"^\s*"
+        rf"(?:(?:public|protected|private|abstract|static|final|sealed|non-sealed)\s+)*"
+        rf"(?:class|interface|enum|record|@interface)\s+{re.escape(type_name)}\b"
+    )
     return re.search(pat, txt, flags=re.MULTILINE) is not None

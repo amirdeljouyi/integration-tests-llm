@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from .compile import compile_test_set_smart
 from ..core.coverage import write_coverage_row
+from ..core.java import compile_test_set_smart
 from .run import run_test_with_coverage
 from ..pipeline.helpers import (
     adopted_variants,
@@ -84,7 +84,7 @@ def run_coverage_for_test(
         )
         return
     jacoco_cli = jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar"
-    status, stats, _test_fqcn = run_test_with_coverage(
+    result, stats, _test_fqcn, _coverage_observation = run_test_with_coverage(
         test_src=test_src,
         compiled_tests_dir=compiled_tests_dir,
         exec_file=exec_file,
@@ -111,7 +111,7 @@ def run_coverage_for_test(
         line_total=stats[1],
         branch_covered=stats[2],
         branch_total=stats[3],
-        status=status,
+        status=result.status,
     )
 
 
