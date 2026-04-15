@@ -50,13 +50,14 @@ class PomPatcher:
 
         # try insert into existing <plugins> inside <build>
         if re.search(r"<build>.*?<plugins>.*?</plugins>.*?</build>", txt, re.DOTALL):
-            patched = re.sub(
-                r"(<build>.*?<plugins>)(.*?)(</plugins>.*?</build>)",
-                lambda m: m.group(1) + m.group(2) + "\n" + ASSEMBLY_PLUGIN_XML + "\n" + m.group(3),
-                txt,
-                flags=re.DOTALL,
-                count=1
-            )
+            m = re.search(r"(<build>.*?<plugins>)(.*?)(\n([ \t]*)</plugins>.*?</build>)", txt, re.DOTALL)
+            if not m:
+                raise RuntimeError(f"Could not patch existing <plugins> block in {pom}")
+            open_part, body, close_part, close_indent = m.group(1), m.group(2), m.group(3), m.group(4)
+            plugin_indent = self._detect_plugin_indent(body, close_indent)
+            injected = self._indent_block(ASSEMBLY_PLUGIN_XML, plugin_indent)
+            separator = "" if body.endswith("\n") or not body else "\n"
+            patched = txt[:m.start()] + open_part + body + separator + injected + close_part + txt[m.end():]
         # build exists, plugins missing
         elif re.search(r"<build>.*?</build>", txt, re.DOTALL):
             patched = re.sub(
@@ -82,3 +83,14 @@ class PomPatcher:
         if backup and backup.exists():
             pom.write_text(backup.read_text(encoding="utf-8", errors="ignore"), encoding="utf-8")
             backup.unlink(missing_ok=True)
+
+    @staticmethod
+    def _indent_block(block: str, indent: str) -> str:
+        return "\n".join((indent + line) if line else line for line in block.splitlines())
+
+    @staticmethod
+    def _detect_plugin_indent(body: str, close_indent: str) -> str:
+        match = re.search(r"\n([ \t]*)<plugin>", body)
+        if match:
+            return match.group(1)
+        return close_indent + "  "

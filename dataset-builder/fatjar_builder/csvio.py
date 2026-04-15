@@ -1,7 +1,7 @@
 from __future__ import annotations
 import csv
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Set, Tuple
 
 from .models import CutRow, CutRecord, RepoRoot
 
@@ -9,6 +9,8 @@ from .models import CutRow, CutRecord, RepoRoot
 class CsvIO:
     def read_cut_rows(self, cut_csv: Path) -> List[CutRow]:
         out: List[CutRow] = []
+        if not cut_csv.exists():
+            return out
         with cut_csv.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for r in reader:
@@ -17,6 +19,35 @@ class CsvIO:
                 test_paths = (r.get("test_paths") or "").strip()
                 if repo and class_path:
                     out.append(CutRow(repo=repo, class_path=class_path, test_paths=test_paths))
+        return out
+
+    def read_failures(self, failures_csv: Path) -> Set[Tuple[str, str]]:
+        """Returns set of (repo, class_path) from generate-auto.failures.csv."""
+        out: Set[Tuple[str, str]] = set()
+        if not failures_csv.exists():
+            return out
+        with failures_csv.open(newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                repo = (r.get("repo") or "").strip()
+                cp = (r.get("class_path") or "").strip()
+                if repo and cp:
+                    out.add((repo, cp))
+        return out
+
+    def read_fatjar_map_failures(self, out_map_csv: Path) -> Set[Tuple[str, str]]:
+        """Returns set of (repo, class_path) from cut_to_fatjar_map.csv that failed build."""
+        out: Set[Tuple[str, str]] = set()
+        if not out_map_csv.exists():
+            return out
+        with out_map_csv.open(newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                repo = (r.get("repo") or "").strip()
+                cp = (r.get("class_path") or "").strip()
+                fj = (r.get("fatjar_path") or "").strip()
+                if repo and cp and (not fj or fj == "FAIL" or fj.startswith("SKIP")):
+                    out.add((repo, cp))
         return out
 
     def read_repo_roots(self, repos_csv: Path) -> Dict[str, RepoRoot]:

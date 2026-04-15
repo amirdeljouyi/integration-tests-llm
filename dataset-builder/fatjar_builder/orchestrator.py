@@ -1,8 +1,9 @@
 from __future__ import annotations
 import os
 import shutil
+import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .config import BuildConfig
 from .csvio import CsvIO
@@ -44,12 +45,34 @@ class BuildOrchestrator:
             os.environ["JAVA_HOME"] = self.cfg.java_home
 
         cut_rows = self.io.read_cut_rows(self.cfg.cut_csv)
+        if self.cfg.retry_only:
+            failed_in_agt = set()
+            if self.cfg.failures_csv:
+                failed_in_agt = self.io.read_failures(self.cfg.failures_csv)
+            
+            failed_in_build = set()
+            if self.cfg.out_map_csv:
+                failed_in_build = self.io.read_fatjar_map_failures(self.cfg.resolved_out_map_csv())
+            
+            all_failures = failed_in_agt | failed_in_build
+            if all_failures:
+                new_rows = [r for r in cut_rows if (r.repo, r.class_path) in all_failures]
+                print(f"[RETRY] Filtering to {len(new_rows)} failures (from {len(cut_rows)} total rows)")
+                if self.lc.logger:
+                    self.lc.logger.info("[RETRY] Filtering to %d failures (from %d total rows)", len(new_rows), len(cut_rows))
+                cut_rows = new_rows
+            else:
+                print("[RETRY] No failures found in AGT or previous build map. Running all.")
+                if self.lc.logger:
+                    self.lc.logger.info("[RETRY] No failures found in AGT or previous build map. Running all.")
+
         if not cut_rows:
             raise RuntimeError("No usable rows found.")
 
         repo_roots = self.io.read_repo_roots(self.cfg.resolved_repos_csv())
 
         module_dirs: Dict[ModuleKey, Path] = {}
+        module_class_entries: Dict[ModuleKey, Set[str]] = {}
         cut_records: List[CutRecord] = []
 
         for row in cut_rows:
@@ -57,6 +80,8 @@ class BuildOrchestrator:
             cut_records.append(rec)
             if mk and mdir:
                 module_dirs.setdefault(mk, mdir)
+                if rec.fqcn:
+                    module_class_entries.setdefault(mk, set()).add(rec.fqcn.replace(".", "/") + ".class")
 
         fatjar_by_module_key: Dict[str, str] = {}
 
@@ -78,6 +103,13 @@ class BuildOrchestrator:
                 else:
                     fatjar_by_module_key[k] = "FAIL"
                     continue
+
+                missing_entries = self._missing_class_entries(jar, module_class_entries.get(mk, set()))
+                if missing_entries:
+                    raise SkipBuild(
+                        f"Selected jar does not contain CUT classes for module {mk.module_rel} "
+                        f"(example missing: {missing_entries[0]})"
+                    )
 
                 out_sub = self.cfg.out_dir() / safe_name(mk.repo) / safe_name(mk.module_rel or "root")
                 out_sub.mkdir(parents=True, exist_ok=True)
@@ -162,6 +194,10 @@ class BuildOrchestrator:
                 None,
             )
 
+        source_module_dir = self.detector.infer_source_module_dir(root, row.class_path)
+        if tool == "gradle" and source_module_dir and source_module_dir.exists():
+            module_dir = source_module_dir
+
         module_rel = self.detector.relpath(module_dir, root)
         mk = ModuleKey(repo=row.repo, tool=tool, module_rel=module_rel)
 
@@ -177,3 +213,14 @@ class BuildOrchestrator:
             mk,
             module_dir,
         )
+
+    @staticmethod
+    def _missing_class_entries(jar: Path, expected_entries: Set[str]) -> List[str]:
+        if not expected_entries:
+            return []
+        try:
+            with zipfile.ZipFile(jar) as zf:
+                names = set(zf.namelist())
+        except Exception:
+            return sorted(expected_entries)
+        return sorted(entry for entry in expected_entries if entry not in names)

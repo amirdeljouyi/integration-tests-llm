@@ -7,7 +7,7 @@ from typing import List, Optional
 from dataclasses import dataclass
 
 from .command_runner import CommandRunner
-from .exceptions import CmdError
+from .exceptions import CmdError, SkipBuild
 from .wrappers import WrapperSelector
 from .build_root import BuildRootDetector
 from .jars import JarPicker
@@ -125,12 +125,18 @@ class MavenFatJarBuilder:
         jars = sorted(jar_dir.glob("*.jar"), key=lambda p: p.stat().st_mtime, reverse=True)
         jars = [
             j for j in jars
-            if not any(x in j.name.lower() for x in ["sources", "javadoc", "original-"])
+            if not any(x in j.name.lower() for x in ["sources", "javadoc", "-plain"])
         ]
         jars = [j for j in jars if not self._is_test_jar_name(j.name)]
         if not jars:
             return None
 
+        jars.sort(
+            key=lambda p: (
+                self.jar_picker._is_original_backup(p.name),
+                -p.stat().st_mtime,
+            )
+        )
         # prefer fat
         fat = [j for j in jars if self.jar_picker.is_fat(j)]
         return fat[0] if fat else jars[0]
@@ -140,6 +146,7 @@ class MavenFatJarBuilder:
         common = mvn + ["-q"]
 
         skips = [
+            "-Dmaven.test.skip=true",
             "-DskipTests",
             "-DskipITs",
             "-Dinvoker.skip=true",
@@ -244,7 +251,7 @@ class MavenFatJarBuilder:
 
         # 2) if already fat => return (avoid *-tests.jar)
         jar = self._pick_best_non_test_jar(jar_dir) or self.jar_picker.pick_best_jar(jar_dir)
-        if jar and self.jar_picker.is_fat(jar):
+        if jar and self.jar_picker.is_fat_archive(jar):
             return jar
 
         # 3) Try assembly CLI (log failures)
@@ -254,7 +261,7 @@ class MavenFatJarBuilder:
             self._log_cmd_error("maven-assembly CLI (jar-with-dependencies)", e)
 
         jar = self._pick_best_non_test_jar(jar_dir) or self.jar_picker.pick_best_jar(jar_dir)
-        if jar and "jar-with-dependencies" in jar.name.lower():
+        if jar and self.jar_picker.is_fat_archive(jar):
             return jar
 
         # 4) If still missing, patch *module pom* to bind assembly to package, then run package, then restore
@@ -304,7 +311,7 @@ class MavenFatJarBuilder:
                         self.logger.warning(msg)
 
         jar = self._pick_best_non_test_jar(jar_dir) or self.jar_picker.pick_best_jar(jar_dir)
-        if jar and "jar-with-dependencies" in jar.name.lower():
+        if jar and self.jar_picker.is_fat_archive(jar):
             return jar
 
         # 5) fallback shade (log failures too)
@@ -320,4 +327,6 @@ class MavenFatJarBuilder:
         jar = self._pick_best_non_test_jar(jar_dir) or self.jar_picker.pick_best_jar(jar_dir)
         if not jar:
             raise FileNotFoundError(f"No jars produced in {jar_dir}")
+        if not self.jar_picker.is_fat_archive(jar):
+            raise SkipBuild(f"No fat Maven jar produced (selected plain jar: {jar.name})")
         return jar

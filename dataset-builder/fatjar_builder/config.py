@@ -22,6 +22,8 @@ class BuildConfig:
     log_dir: Optional[Path] = None
     repos_csv: Optional[Path] = None
     out_map_csv: Optional[Path] = None
+    failures_csv: Optional[Path] = None
+    retry_only: bool = False
     skip_repos: Set[str] = field(default_factory=lambda: set(DEFAULT_SKIP_REPOS))
 
     def base(self) -> Path:

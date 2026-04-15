@@ -26,6 +26,8 @@ def main():
     ap.add_argument("--log-dir", default="")
     ap.add_argument("--repos-csv", default="")
     ap.add_argument("--out-map-csv", default="")
+    ap.add_argument("--failures-csv", default="")
+    ap.add_argument("--retry-only", action="store_true", help="Only build classes that failed in AGT or previous fatjar build")
     args = ap.parse_args()
 
     cfg = BuildConfig(
@@ -37,6 +39,8 @@ def main():
         log_dir=Path(args.log_dir).resolve() if args.log_dir else None,
         repos_csv=Path(args.repos_csv).resolve() if args.repos_csv else None,
         out_map_csv=Path(args.out_map_csv).resolve() if args.out_map_csv else None,
+        failures_csv=Path(args.failures_csv).resolve() if args.failures_csv else None,
+        retry_only=args.retry_only,
     )
 
     lc = LoggingContext(cfg.resolved_log_dir())

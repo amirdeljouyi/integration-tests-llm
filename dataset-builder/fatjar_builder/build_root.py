@@ -132,5 +132,21 @@ class BuildRootDetector:
         return rel.replace("/", ".")
 
     @staticmethod
+    def infer_source_module_dir(repo_root: Path, class_path: str) -> Optional[Path]:
+        p = class_path.replace("\\", "/")
+        markers = [
+            "/src/main/java/",
+            "/src/main/kotlin/",
+            "/src/main/groovy/",
+            "/src/main/scala/",
+        ]
+        for marker in markers:
+            if marker not in p:
+                continue
+            rel = p.split(marker, 1)[0]
+            return repo_root if not rel else (repo_root / rel)
+        return None
+
+    @staticmethod
     def relpath(child: Path, parent: Path) -> str:
         return os.path.relpath(child, parent).replace("\\", "/")

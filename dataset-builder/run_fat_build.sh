@@ -8,6 +8,10 @@ BASE_DIR="${BASE_DIR:-.}"                    # where repos/out/.cache live in lo
 PY_SCRIPT="${PY_SCRIPT:-build_fatjars.py}"   # your python build script name
 UPDATE_EXISTING="${UPDATE_EXISTING:-0}"      # 1 to git fetch/reset existing repos
 LOG_DIR="${LOG_DIR:-}"                       # optional override, e.g., ./out/logs
+FAILURES_CSV="${FAILURES_CSV:-run-agt/result/log/generate-auto.failures.csv}"             # default agt failures csv
+RETRY_ONLY="${RETRY_ONLY:-0}"                # 1 to retry only failures
+SDKMAN_CANDIDATES_DIR="${SDKMAN_CANDIDATES_DIR:-}"
+JAVA21_HOME="${JAVA21_HOME:-}"
 # -----------------------------
 
 if [[ ! -f "$CUT_CSV" ]]; then
@@ -55,6 +59,14 @@ fi
 
 if [[ -n "$LOG_DIR" ]]; then
   cmd+=(--log-dir "$LOG_DIR")
+fi
+
+if [[ -n "$FAILURES_CSV" ]]; then
+  cmd+=(--failures-csv "$FAILURES_CSV")
+fi
+
+if [[ "$RETRY_ONLY" == "1" ]]; then
+  cmd+=(--retry-only)
 fi
 
 # Optional: force all builds to run under JDK 21 (not only retries)
