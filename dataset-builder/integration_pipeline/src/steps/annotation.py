@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from ..core.common import repo_to_dir
+from ..pipeline.config import covfilter_candidate_out_dirs
 from ..pipeline.helpers import (
     first_test_source_for_fqcn,
     reduced_test_path,
@@ -662,6 +663,7 @@ class ReducedAnnotationStep(Step):
         enabled = {v.strip().lower() for v in self.pipeline.args.annotation_variants.split(",") if v.strip()}
         if not enabled:
             enabled = {"auto", "adopted", "agentic"}
+        auto_variant = self.pipeline.args.auto_variant
 
         repo_root = self.pipeline.repos_dir / repo_to_dir(ctx.repo)
         repo_ref = _github_ref(repo_root)
@@ -705,32 +707,47 @@ class ReducedAnnotationStep(Step):
             )
         )
 
-        if "auto" in enabled:
+        if "auto" in enabled or "auto-original" in enabled:
             generated_test_src = first_test_source_for_fqcn(ctx.final_sources, ctx.generated_test_fqcn)
             reduced_root = Path(self.pipeline.args.reduced_out)
             top_n = max(1, min(self.pipeline.args.reduce_max_tests, 100))
             reduced_src = (
-                reduced_test_path(reduced_root, ctx.target_id, generated_test_src, top_n)
+                reduced_test_path(
+                    reduced_root,
+                    ctx.target_id,
+                    generated_test_src,
+                    top_n,
+                    preferred_variants=[auto_variant],
+                )
                 if generated_test_src
                 else None
             )
             if reduced_src is None:
-                reduced_src = _find_any_reduced_file(reduced_root / "auto" / ctx.target_id)
+                reduced_src = _find_any_reduced_file(reduced_root / auto_variant / ctx.target_id)
             if reduced_src and reduced_src.exists():
                 rel = _resolve_rel_path(
                     reduced_src,
-                    [reduced_root / "auto" / ctx.target_id, reduced_root / ctx.target_id],
+                    [reduced_root / auto_variant / ctx.target_id, reduced_root / ctx.target_id],
                 )
-                annotated_out = annotation_root / "auto" / ctx.target_id / rel
-                cov_base = self.pipeline.covfilter_out_root / ctx.target_id
-                test_deltas = _find_existing_delta_csv(cov_base, ["test_deltas_kept.csv", "tests_deltas_kept.csv"])
-                line_deltas = _find_existing_delta_csv(cov_base, ["line_deltas_kept.csv", "lines_deltas_kept.csv"])
+                annotated_out = annotation_root / auto_variant / ctx.target_id / rel
+                test_deltas = None
+                line_deltas = None
+                for cov_base in covfilter_candidate_out_dirs(
+                    self.pipeline.covfilter_out_root,
+                    self.pipeline.adopted_covfilter_out_root,
+                    auto_variant,
+                    ctx.target_id,
+                ):
+                    test_deltas = _find_existing_delta_csv(cov_base, ["test_deltas_kept.csv", "tests_deltas_kept.csv"])
+                    line_deltas = _find_existing_delta_csv(cov_base, ["line_deltas_kept.csv", "lines_deltas_kept.csv"])
+                    if test_deltas and line_deltas:
+                        break
                 if test_deltas and line_deltas:
                     line_total = _load_line_total_from_summaries(
                         summary_csvs,
                         repo=ctx.repo,
                         fqcn=ctx.fqcn,
-                        variant="auto",
+                        variant=auto_variant,
                     )
                     if _annotate_reduced_test(
                         repo=ctx.repo,
@@ -746,7 +763,7 @@ class ReducedAnnotationStep(Step):
                         line_deltas_csv=line_deltas,
                     ):
                         print(
-                            f'[agt] annotation: wrote auto annotated test for repo="{ctx.repo}" '
+                            f'[agt] annotation: wrote {auto_variant} annotated test for repo="{ctx.repo}" '
                             f'fqcn="{ctx.fqcn}" -> {annotated_out}'
                         )
 
@@ -768,9 +785,18 @@ class ReducedAnnotationStep(Step):
             )
             annotated_out = annotation_root / variant / ctx.target_id / rel
 
-            cov_base = self.pipeline.adopted_covfilter_out_root / variant / ctx.target_id
-            test_deltas = _find_existing_delta_csv(cov_base, ["test_deltas_kept.csv", "tests_deltas_kept.csv"])
-            line_deltas = _find_existing_delta_csv(cov_base, ["line_deltas_kept.csv", "lines_deltas_kept.csv"])
+            test_deltas = None
+            line_deltas = None
+            for cov_base in covfilter_candidate_out_dirs(
+                self.pipeline.covfilter_out_root,
+                self.pipeline.adopted_covfilter_out_root,
+                variant,
+                ctx.target_id,
+            ):
+                test_deltas = _find_existing_delta_csv(cov_base, ["test_deltas_kept.csv", "tests_deltas_kept.csv"])
+                line_deltas = _find_existing_delta_csv(cov_base, ["line_deltas_kept.csv", "lines_deltas_kept.csv"])
+                if test_deltas and line_deltas:
+                    break
             if not test_deltas or not line_deltas:
                 continue
             line_total = _load_line_total_from_summaries(

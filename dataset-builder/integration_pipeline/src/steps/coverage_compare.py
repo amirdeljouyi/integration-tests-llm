@@ -121,13 +121,14 @@ class CoverageComparisonStep(Step):
     def run(self, ctx: "TargetContext") -> bool:
         if not self.should_run():
             return True
+        auto_variant = self.pipeline.args.auto_variant
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(f'[agt] coverage-comparison: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True
 
         manual_test_src = first_test_source_for_fqcn(ctx.manual_sources or ctx.final_sources, ctx.manual_test_fqcn)
         generated_test_src = first_test_source_for_fqcn(ctx.final_sources, ctx.generated_test_fqcn)
-        variants = adopted_variants(self.pipeline.adopted_root, ctx.target_id)
+        variants = adopted_variants(self.pipeline.adopted_root, ctx.target_id, ctx.fqcn)
         tool_jar = Path(self.pipeline.args.tool_jar)
 
         if manual_test_src and manual_test_src.exists():
@@ -155,13 +156,13 @@ class CoverageComparisonStep(Step):
         if generated_test_src and generated_test_src.exists():
             run_coverage_for_test(
                 test_src=generated_test_src,
-                variant="auto",
+                variant=auto_variant,
                 repo=ctx.repo,
                 fqcn=ctx.fqcn,
-                build_dir=self.pipeline.build_dir / "coverage-compare" / "auto" / ctx.target_id,
+                build_dir=self.pipeline.build_dir / "coverage-compare" / auto_variant / ctx.target_id,
                 compiled_tests_dir=ctx.target_build,
-                log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.auto.log",
-                exec_file=self.pipeline.out_dir / f"{ctx.target_id}__auto.exec",
+                log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.{auto_variant}.log",
+                exec_file=self.pipeline.out_dir / f"{ctx.target_id}__{auto_variant}.exec",
                 libs_glob_cp=self.pipeline.args.libs_cp,
                 sut_jar=ctx.sut_jar,
                 jacoco_agent=self.pipeline.jacoco_agent,
@@ -206,6 +207,7 @@ class CoverageComparisonReducedStep(Step):
     def run(self, ctx: "TargetContext") -> bool:
         if not self.should_run():
             return True
+        auto_variant = self.pipeline.args.auto_variant
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(
                 f'[agt] coverage-comparison-reduced: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"'
@@ -215,7 +217,17 @@ class CoverageComparisonReducedStep(Step):
         reduced_root = Path(self.pipeline.args.reduced_out)
         top_n = max(1, min(self.pipeline.args.coverage_compare_top_n, 100))
         generated_test_src = first_test_source_for_fqcn(ctx.final_sources, ctx.generated_test_fqcn)
-        auto_reduced = reduced_test_path(reduced_root, ctx.target_id, generated_test_src, top_n) if generated_test_src else None
+        auto_reduced = (
+            reduced_test_path(
+                reduced_root,
+                ctx.target_id,
+                generated_test_src,
+                top_n,
+                preferred_variants=[auto_variant],
+            )
+            if generated_test_src
+            else None
+        )
         tool_jar = Path(self.pipeline.args.tool_jar)
 
         if auto_reduced and auto_reduced.exists():
@@ -226,13 +238,13 @@ class CoverageComparisonReducedStep(Step):
             fix_reduced_scaffolding_import(auto_reduced, scaffolding)
             run_coverage_for_test(
                 test_src=auto_reduced,
-                variant="auto-reduced",
+                variant=f"{auto_variant}-reduced",
                 repo=ctx.repo,
                 fqcn=ctx.fqcn,
-                build_dir=self.pipeline.build_dir / "coverage-compare-reduced" / "auto" / ctx.target_id,
+                build_dir=self.pipeline.build_dir / "coverage-compare-reduced" / auto_variant / ctx.target_id,
                 compiled_tests_dir=None,
-                log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.auto-reduced.log",
-                exec_file=self.pipeline.out_dir / f"{ctx.target_id}__auto_reduced.exec",
+                log_file=self.pipeline.logs_dir / f"{ctx.target_id}.coverage.{auto_variant}-reduced.log",
+                exec_file=self.pipeline.out_dir / f"{ctx.target_id}__{auto_variant}_reduced.exec",
                 libs_glob_cp=self.pipeline.args.libs_cp,
                 sut_jar=ctx.sut_jar,
                 jacoco_agent=self.pipeline.jacoco_agent,

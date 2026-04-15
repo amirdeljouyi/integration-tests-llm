@@ -17,7 +17,7 @@ class AdoptedCommentStep(Step):
         if not self.should_run():
             return True
 
-        variants = adopted_variants(self.pipeline.adopted_root, ctx.target_id)
+        variants = adopted_variants(self.pipeline.adopted_root, ctx.target_id, ctx.fqcn)
         if not variants:
             print(f'[agt] adopted-comment: Skip (missing adopted tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True

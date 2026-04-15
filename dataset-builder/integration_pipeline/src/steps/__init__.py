@@ -13,6 +13,7 @@ from .pr_maker import PullRequestMakerStep
 from .coverage_compare import CoverageComparisonStep, CoverageComparisonReducedStep
 from .run import RunStep, AdoptedRunStep
 from .annotation import ReducedAnnotationStep
+from .sanitize import SanitizeEvoSuiteStep
 
 __all__ = [
     "Step",
@@ -32,4 +33,5 @@ __all__ = [
     "ReducedAnnotationStep",
     "RunStep",
     "AdoptedRunStep",
+    "SanitizeEvoSuiteStep",
 ]

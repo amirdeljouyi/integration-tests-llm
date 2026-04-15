@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, TYPE_CHECKING
 
 from ..core.common import ensure_dir, parse_package_and_class, repo_to_dir
-from ..pipeline.helpers import first_test_source_for_fqcn, improved_test_path
+from ..pipeline.helpers import agentic_test_path, first_test_source_for_fqcn, improved_test_path
 from .base import Step
 from .llm import _output_class_name_from_path, _rewrite_class_name, write_adopted_output
 
@@ -140,6 +140,7 @@ def run_codex_integration(
     repo_root: Optional[Path],
     out_root: Path,
     target_id: str,
+    target_fqcn: Optional[str],
     max_context_files: int,
     max_context_chars: int,
     max_prompt_chars: int,
@@ -246,7 +247,7 @@ def run_codex_integration(
     out_name = _output_class_name_from_path(improved_test_path, "_Adopted_Agentic")
     rewritten = _rewrite_class_name(text, out_name)
     ensure_dir(out_root)
-    return write_adopted_output(out_root=out_root, target_id=target_id, source=rewritten)
+    return write_adopted_output(out_root=out_root, target_id=target_id, source=rewritten, target_fqcn=target_fqcn)
 
 
 class AgentStep(Step):
@@ -262,8 +263,12 @@ class AgentStep(Step):
             print(f'[agt] agent: Skip (missing codex CLI): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True
 
-        improved_src = improved_test_path(self.pipeline.adopted_root, ctx.target_id)
+        improved_src = improved_test_path(self.pipeline.adopted_root, ctx.target_id, ctx.fqcn)
+        existing_agentic_src = agentic_test_path(self.pipeline.adopted_root, ctx.target_id, ctx.fqcn)
         manual_test_src = first_test_source_for_fqcn(ctx.manual_sources or ctx.final_sources, ctx.manual_test_fqcn)
+        if self.pipeline.args.skip_exists and existing_agentic_src and existing_agentic_src.exists():
+            print(f'[agt] agent: Skip (existing agent output): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+            return True
         if not improved_src or not improved_src.exists():
             print(f'[agt] agent: Skip (missing improved test): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True
@@ -279,6 +284,7 @@ class AgentStep(Step):
             repo_root=repo_root if repo_root.exists() else None,
             out_root=self.pipeline.adopted_root,
             target_id=ctx.target_id,
+            target_fqcn=ctx.fqcn,
             max_context_files=self.pipeline.args.agent_max_context_files,
             max_context_chars=self.pipeline.args.agent_max_context_chars,
             max_prompt_chars=self.pipeline.args.agent_max_prompt_chars,
