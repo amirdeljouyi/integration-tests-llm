@@ -62,6 +62,53 @@ def expand_manual_sources(manual_test_files: List[Path]) -> List[Path]:
     return out
 
 
+def looks_like_test_source(java_file: Path) -> bool:
+    if is_probably_test_filename(java_file.name):
+        return True
+
+    try:
+        text = java_file.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+
+    markers = (
+        "@Test",
+        "@ParameterizedTest",
+        "@RepeatedTest",
+        "@TestFactory",
+        "@TestTemplate",
+        "@RunWith(",
+        "@ExtendWith(",
+        " extends TestCase",
+        "org.junit.Test",
+        "org.junit.jupiter.api.Test",
+    )
+    return any(marker in text for marker in markers)
+
+
+def generated_source_matches_target(java_file: Path, target_fqcn: str) -> bool:
+    target_fqcn = (target_fqcn or "").strip()
+    if not target_fqcn or "." not in target_fqcn:
+        return True
+
+    target_pkg, target_cls = target_fqcn.rsplit(".", 1)
+    pkg, cls = parse_package_and_class(java_file)
+    if not cls:
+        return False
+
+    normalized_cls = cls
+    if normalized_cls.endswith("_ESTest_scaffolding"):
+        normalized_cls = normalized_cls[: -len("_ESTest_scaffolding")]
+    elif normalized_cls.endswith("_ESTest"):
+        normalized_cls = normalized_cls[: -len("_ESTest")]
+
+    if normalized_cls != target_cls:
+        return False
+    if pkg and pkg != target_pkg:
+        return False
+    return True
+
+
 def first_test_fqcn_from_sources(sources: List[Path], *, prefer_estest: bool) -> Optional[str]:
     """
     Pick a single "representative" test fqcn from compiled sources.
@@ -76,6 +123,8 @@ def first_test_fqcn_from_sources(sources: List[Path], *, prefer_estest: bool) ->
         s = 100
         if looks_like_scaffolding(name):
             s += 1000
+        if not looks_like_test_source(p):
+            s += 500
         if prefer_estest:
             if name.endswith("_ESTest.java"):
                 s -= 50
@@ -169,12 +218,36 @@ def fix_reduced_scaffolding_import(reduced_src: Path, scaffolding_src: Optional[
     return True
 
 
-def reduced_test_path(reduced_root: Path, target_id: str, generated_src: Path, top_n: int) -> Optional[Path]:
+def reduced_test_path(
+    reduced_root: Path,
+    target_id: str,
+    generated_src: Path,
+    top_n: int,
+    preferred_variants: Optional[Sequence[str]] = None,
+) -> Optional[Path]:
     pkg, cls = parse_package_and_class(generated_src)
     if not cls:
         return None
     reduced_name = f"{cls}_Top{top_n}.java"
-    bases = [reduced_root / target_id, reduced_root / "auto" / target_id]
+    bases: List[Path] = []
+    seen_bases: set[Path] = set()
+
+    for variant in preferred_variants or ():
+        base = reduced_root / variant / target_id
+        if base not in seen_bases:
+            seen_bases.add(base)
+            bases.append(base)
+
+    for base in (
+        reduced_root / "auto" / target_id,
+        reduced_root / "auto-original" / target_id,
+        reduced_root / target_id,
+    ):
+        if base in seen_bases:
+            continue
+        seen_bases.add(base)
+        bases.append(base)
+
     for base in bases:
         cand = base / reduced_name
         if cand.exists():
@@ -193,36 +266,83 @@ def reduced_variant_test_path(reduced_root: Path, variant: str, target_id: str, 
     return matches[0] if matches else None
 
 
-def adopted_test_path(adopted_root: Path, target_id: str) -> Optional[Path]:
+def _llm_output_candidate_score(path: Path, *, adopted_root: Path, target_id: str, expected_fqcn: Optional[str]) -> Tuple[int, int, str]:
+    score = 0
+    rel = path
+    try:
+        rel = path.relative_to(adopted_root)
+    except ValueError:
+        pass
+
+    top_dir = rel.parts[0] if rel.parts else ""
+    if top_dir != target_id:
+        score += 1000
+
+    pkg, cls = parse_package_and_class(path)
+    if expected_fqcn and "." in expected_fqcn:
+        expected_pkg, expected_cls = expected_fqcn.rsplit(".", 1)
+        if pkg == expected_pkg:
+            score -= 100
+        elif pkg:
+            score += 25
+
+        expected_test_prefix = f"{expected_cls}_ESTest"
+        if cls.startswith(expected_test_prefix):
+            score -= 50
+        elif cls:
+            score += 10
+
+    return (score, len(rel.parts), str(path))
+
+
+def _find_llm_output_path(
+    adopted_root: Path,
+    target_id: str,
+    pattern: str,
+    *,
+    expected_fqcn: Optional[str] = None,
+) -> Optional[Path]:
+    candidates: List[Path] = []
     base = adopted_root / target_id
-    if not base.exists():
+    if base.exists():
+        candidates.extend(sorted(base.rglob(pattern)))
+    if not candidates and adopted_root.exists():
+        candidates.extend(sorted(adopted_root.rglob(pattern)))
+    if not candidates:
         return None
-    matches = list(base.rglob("*_Adopted.java"))
-    return matches[0] if matches else None
+    return min(
+        candidates,
+        key=lambda p: _llm_output_candidate_score(
+            p,
+            adopted_root=adopted_root,
+            target_id=target_id,
+            expected_fqcn=expected_fqcn,
+        ),
+    )
 
 
-def improved_test_path(adopted_root: Path, target_id: str) -> Optional[Path]:
-    base = adopted_root / target_id
-    if not base.exists():
-        return None
-    matches = list(base.rglob("*_Improved.java"))
-    return matches[0] if matches else None
+def adopted_test_path(adopted_root: Path, target_id: str, expected_fqcn: Optional[str] = None) -> Optional[Path]:
+    return _find_llm_output_path(adopted_root, target_id, "*_Adopted.java", expected_fqcn=expected_fqcn)
 
 
-def agentic_test_path(adopted_root: Path, target_id: str) -> Optional[Path]:
-    base = adopted_root / target_id
-    if not base.exists():
-        return None
-    matches = list(base.rglob("*_Adopted_Agentic.java"))
-    return matches[0] if matches else None
+def improved_test_path(adopted_root: Path, target_id: str, expected_fqcn: Optional[str] = None) -> Optional[Path]:
+    return _find_llm_output_path(adopted_root, target_id, "*_Improved.java", expected_fqcn=expected_fqcn)
 
 
-def adopted_variants(adopted_root: Path, target_id: str) -> List[Tuple[str, Path]]:
+def agentic_test_path(adopted_root: Path, target_id: str, expected_fqcn: Optional[str] = None) -> Optional[Path]:
+    return _find_llm_output_path(adopted_root, target_id, "*_Adopted_Agentic.java", expected_fqcn=expected_fqcn)
+
+
+def step_by_step_test_path(adopted_root: Path, target_id: str, expected_fqcn: Optional[str] = None) -> Optional[Path]:
+    return _find_llm_output_path(adopted_root, target_id, "*_Adopted_StepByStep.java", expected_fqcn=expected_fqcn)
+
+
+def adopted_variants(adopted_root: Path, target_id: str, expected_fqcn: Optional[str] = None) -> List[Tuple[str, Path]]:
     variants: List[Tuple[str, Path]] = []
-    adopted_src = adopted_test_path(adopted_root, target_id)
+    adopted_src = adopted_test_path(adopted_root, target_id, expected_fqcn)
     if adopted_src and adopted_src.exists():
         variants.append(("adopted", adopted_src))
-    agentic_src = agentic_test_path(adopted_root, target_id)
+    agentic_src = agentic_test_path(adopted_root, target_id, expected_fqcn)
     if agentic_src and agentic_src.exists():
         variants.append(("agentic", agentic_src))
     return variants

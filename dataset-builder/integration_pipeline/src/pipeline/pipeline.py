@@ -1,14 +1,39 @@
 from __future__ import annotations
 
 import fnmatch
+import os
+import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 
-from ..core.common import looks_like_scaffolding, repo_to_dir, split_list_field, ensure_dir
-from .config import PipelineArgs, PipelineConfig, build_pipeline_config
-from .helpers import expand_manual_sources, find_tests_in_bucket, first_test_fqcn_from_sources
+from ..core.common import looks_like_scaffolding, parse_package_and_class, repo_to_dir, split_list_field, ensure_dir
+from .config import (
+    PipelineArgs,
+    PipelineConfig,
+    build_pipeline_config,
+    covfilter_variant_root,
+    covfilter_variant_summary_csv,
+    reduce_variant_summary_csv,
+)
+from .sanitize import (
+    clear_pair_root,
+    materialize_sanitized_pair,
+    sanitize_compare_summary_csv,
+    sanitize_summary_csv,
+)
+from .helpers import (
+    expand_manual_sources,
+    find_tests_in_bucket,
+    first_test_fqcn_from_sources,
+    first_test_source_for_fqcn,
+    generated_source_matches_target,
+    looks_like_test_source,
+)
 from ..steps import (
     AdoptedCommentStep,
     AdoptedFilterStep,
@@ -25,6 +50,7 @@ from ..steps import (
     ReducedAnnotationStep,
     ReduceStep,
     RunStep,
+    SanitizeEvoSuiteStep,
     SendStep,
     Step,
 )
@@ -47,6 +73,15 @@ class TargetContext:
     generated_test_fqcn: Optional[str] = None
 
 
+def _fatjar_value_is_missing(value: str) -> bool:
+    normalized = (value or "").strip()
+    if not normalized:
+        return True
+
+    upper = normalized.upper()
+    return upper == "FAIL" or upper.startswith("FAIL:") or upper.startswith("SKIP")
+
+
 class Pipeline:
     def __init__(self, args: PipelineArgs) -> None:
         self.args = args
@@ -55,6 +90,7 @@ class Pipeline:
         self.skipped = 0
         self.covfilter_allow: Optional[Set[Tuple[str, str]]] = None
         self.steps: List[Step] = []
+        self.generate_auto_output_root: Optional[Path] = None
 
     def run_configuration(self) -> None:
         self.config = build_pipeline_config(self.args)
@@ -63,6 +99,21 @@ class Pipeline:
 
     def run(self) -> int:
         self.run_configuration()
+        step = (self.args.step or "all").strip()
+        if step in ("generate-auto", "all"):
+            rc = self.run_generate_auto()
+            if rc != 0:
+                return rc
+        elif step == "sync":
+            rc = self.run_sync()
+            if rc != 0:
+                return rc
+        if step in ("generate-auto", "sync"):
+            self.ran = 1
+            self.print_step_summary()
+            return 0
+        if step == "all":
+            self.run_configuration()
         self.steps = self.build_steps()
         for r in self.inv_rows:
             ctx = self.build_target_context(r)
@@ -86,6 +137,32 @@ class Pipeline:
             print(f"[agt] {label}: {value}")
 
     def _step_artifact_lines(self, step: str) -> List[Tuple[str, Path]]:
+        if step == "generate-auto":
+            return [
+                ("Generated tests", self.generated_dir),
+                ("Manual tests", self.manual_dir),
+                ("Tests inventory", self.inventory_csv),
+                (
+                    "Failure summary",
+                    (self.generate_auto_output_root or Path(self.args.generate_auto_output_dir)) / "log" / "generate-auto.failures.csv",
+                ),
+                (
+                    "run-agt output",
+                    self.generate_auto_output_root or Path(self.args.generate_auto_output_dir),
+                ),
+                ("Logs", self.logs_dir),
+            ]
+        if step == "sync":
+            return [
+                ("Generated tests", self.generated_dir),
+                ("Manual tests", self.manual_dir),
+                ("Tests inventory", self.inventory_csv),
+                (
+                    "run-agt output",
+                    self.generate_auto_output_root or Path(self.args.generate_auto_output_dir),
+                ),
+                ("Logs", self.logs_dir),
+            ]
         if step == "compile":
             return [
                 ("Compile summary", self.compile_summary_csv),
@@ -116,10 +193,250 @@ class Pipeline:
                 ("Coverage compare reduced", self.coverage_compare_reduced_csv),
                 ("Logs", self.logs_dir),
             ]
+        if step == "filter":
+            auto_variant = self.args.auto_variant
+            lines = [
+                (
+                    "Covfilter summary",
+                    covfilter_variant_summary_csv(
+                        self.covfilter_out_root, self.adopted_covfilter_out_root, auto_variant, self.args.includes
+                    ),
+                ),
+                (
+                    "Covfilter out",
+                    covfilter_variant_root(self.covfilter_out_root, self.adopted_covfilter_out_root, auto_variant),
+                ),
+            ]
+            if auto_variant == "auto" and self.args.sanitize_compare:
+                lines.extend(
+                    [
+                        (
+                            "Sanitize compare",
+                            sanitize_compare_summary_csv(Path(self.args.sanitize_compare_out), self.args.includes),
+                        ),
+                        ("Sanitized ES", Path(self.args.sanitized_es_dir)),
+                    ]
+                )
+            lines.append(("Logs", self.logs_dir))
+            return lines
+        if step == "sanitize-es":
+            return [
+                ("Sanitize summary", sanitize_summary_csv(Path(self.args.sanitized_es_dir), self.args.includes)),
+                ("Sanitized ES", Path(self.args.sanitized_es_dir)),
+                ("Logs", self.logs_dir),
+            ]
+        if step == "adopted-filter":
+            return [
+                (
+                    "Adopted covfilter summary",
+                    covfilter_variant_summary_csv(
+                        self.covfilter_out_root,
+                        self.adopted_covfilter_out_root,
+                        "adopted",
+                        self.args.includes,
+                    ),
+                ),
+                (
+                    "Agentic covfilter summary",
+                    covfilter_variant_summary_csv(
+                        self.covfilter_out_root,
+                        self.adopted_covfilter_out_root,
+                        "agentic",
+                        self.args.includes,
+                    ),
+                ),
+                ("Adopted covfilter out", self.adopted_covfilter_out_root),
+                ("Logs", self.logs_dir),
+            ]
+        if step == "reduce":
+            auto_variant = self.args.auto_variant
+            return [
+                ("Reduce summary", reduce_variant_summary_csv(Path(self.args.reduced_out), auto_variant, self.args.includes)),
+                ("Reduced out", Path(self.args.reduced_out) / auto_variant),
+                ("Logs", self.logs_dir),
+            ]
+        if step == "adopted-reduce":
+            return [
+                (
+                    "Adopted reduce summary",
+                    reduce_variant_summary_csv(self.adopted_reduced_out_root, "adopted", self.args.includes),
+                ),
+                (
+                    "Agentic reduce summary",
+                    reduce_variant_summary_csv(self.adopted_reduced_out_root, "agentic", self.args.includes),
+                ),
+                ("Reduced out", self.adopted_reduced_out_root),
+                ("Logs", self.logs_dir),
+            ]
         return [
             ("Out dir", self.out_dir),
             ("Logs", self.logs_dir),
         ]
+
+    def run_generate_auto(self) -> int:
+        step = (self.args.step or "all").strip()
+        if step not in ("generate-auto", "all"):
+            return 0
+
+        run_agt_script = Path(self.args.generate_auto_script)
+        collect_tests_script = Path(self.args.collect_tests_script)
+        if not run_agt_script.exists():
+            print(f"[agt] generate-auto: FAIL (missing run-agt script): {run_agt_script}")
+            return 1
+        if not collect_tests_script.exists():
+            print(f"[agt] generate-auto: FAIL (missing collect_tests script): {collect_tests_script}")
+            return 1
+
+        env = os.environ.copy()
+        repos_dir = Path(env.get("REPOS_DIR", str(self.repos_dir))).resolve()
+        output_root = Path(env.get("OUTPUT_DIR", self.args.generate_auto_output_dir)).resolve()
+        tests_inventory_csv = Path(env.get("TESTS_INVENTORY_CSV", str(self.inventory_csv))).resolve()
+        map_csv = self.map_csv.resolve()
+        generated_tests_root = output_root / "generated-tests"
+        java_home = self._resolve_generate_auto_java_home(env)
+
+        env["REPOS_DIR"] = str(repos_dir)
+        env["OUTPUT_DIR"] = str(output_root)
+        env["TESTS_INVENTORY_CSV"] = str(tests_inventory_csv)
+        env["ONLY_MISSING_GENERATED"] = "1" if self.args.generate_auto_skip_existing else "0"
+        if java_home is not None:
+            env["JAVA_HOME"] = str(java_home)
+            env["PATH"] = f"{java_home / 'bin'}:{env.get('PATH', '')}"
+        self.generate_auto_output_root = output_root
+
+        run_log = self.logs_dir / "generate-auto.run-agt.log"
+        existing_attempt_dirs = self._generated_attempt_dirs(generated_tests_root)
+        run_cmd = [str(run_agt_script.resolve()), str(map_csv)]
+        print(f"[agt] generate-auto: running {run_agt_script} with map {map_csv}")
+        if java_home is not None:
+            print(f"[agt] generate-auto: using JAVA_HOME={java_home}")
+        run_proc = subprocess.run(
+            run_cmd,
+            cwd=str(run_agt_script.resolve().parent),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        run_log.write_text(run_proc.stdout or "", encoding="utf-8", errors="ignore")
+        if run_proc.returncode != 0:
+            print(f"[agt] generate-auto: FAIL (run-agt) (see {run_log})")
+            return run_proc.returncode
+        new_attempt_dirs = self._generated_attempt_dirs(generated_tests_root) - existing_attempt_dirs
+        selected_targets = self._selected_generate_auto_targets(run_proc.stdout or "")
+        if selected_targets > 0 and not new_attempt_dirs:
+            print(
+                f"[agt] generate-auto: FAIL (run-agt produced no new generated-tests output for {selected_targets} selected targets) (see {run_log})"
+            )
+            return 1
+
+        return self.run_sync(force=True)
+
+    @staticmethod
+    def _generated_attempt_dirs(root: Path) -> Set[Path]:
+        if not root.exists():
+            return set()
+        return {path.resolve() for path in root.iterdir() if path.is_dir()}
+
+    @staticmethod
+    def _selected_generate_auto_targets(output: str) -> int:
+        match = re.search(r"selected=(\d+)", output)
+        if not match:
+            return 0
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return 0
+
+    def _resolve_generate_auto_java_home(self, env: dict[str, str]) -> Optional[Path]:
+        configured = (self.args.generate_auto_java_home or "").strip()
+        if configured:
+            candidate = Path(configured).expanduser().resolve()
+            if candidate.exists():
+                return candidate
+
+        java21_home = (env.get("JAVA21_HOME") or "").strip()
+        if java21_home:
+            candidate = Path(java21_home).expanduser().resolve()
+            if candidate.exists():
+                return candidate
+
+        sdkman_candidates = (env.get("SDKMAN_CANDIDATES_DIR") or "").strip()
+        if sdkman_candidates:
+            java_root = Path(sdkman_candidates).expanduser().resolve() / "java"
+            if java_root.exists():
+                matches = sorted(
+                    (path for path in java_root.iterdir() if path.is_dir() and path.name.startswith("21.")),
+                    key=lambda path: path.name,
+                )
+                if matches:
+                    return matches[-1]
+        return None
+
+    def run_sync(self, force: Optional[bool] = None) -> int:
+        collect_tests_script = Path(self.args.collect_tests_script)
+        if not collect_tests_script.exists():
+            print(f"[agt] sync: FAIL (missing collect_tests script): {collect_tests_script}")
+            return 1
+
+        force_merge = self.args.sync_force if force is None else force
+        output_root = self.generate_auto_output_root or Path(self.args.generate_auto_output_dir).resolve()
+        repos_dir = Path(self.repos_dir).resolve()
+        collected_tests_root = self.generated_dir.parent.resolve()
+        staging_root = Path(tempfile.mkdtemp(prefix="agt-sync-", dir=str(self.out_dir.resolve())))
+        map_csv = self.map_csv.resolve()
+        collect_cmd = [
+            str(collect_tests_script.resolve()),
+            "--map",
+            str(map_csv),
+            "--repos",
+            str(repos_dir),
+            "--evosuite-root",
+            str(output_root),
+            "--out",
+            str(staging_root),
+        ]
+        print(f"[agt] sync: collecting generated tests into staging dir {staging_root}")
+        try:
+            collect_proc = subprocess.run(
+                collect_cmd,
+                cwd=str(collect_tests_script.resolve().parent),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            collect_log = self.logs_dir / "sync.collect-tests.log"
+            collect_log.write_text(collect_proc.stdout or "", encoding="utf-8", errors="ignore")
+            if collect_proc.returncode != 0:
+                print(f"[agt] sync: FAIL (collect-tests) (see {collect_log})")
+                return collect_proc.returncode
+
+            staged_generated = staging_root / "generated"
+            staged_logs = staging_root / "_logs"
+            target_generated = collected_tests_root / "generated"
+            target_logs = collected_tests_root / "_logs"
+            target_manual = collected_tests_root / "manual"
+            target_generated_exists = target_generated.exists()
+
+            if target_generated_exists and not force_merge:
+                print(f"[agt] sync: FAIL (target already exists: {target_generated}; rerun with --force)")
+                return 1
+            shutil.copytree(staged_generated, target_generated, dirs_exist_ok=force_merge)
+
+            target_logs.mkdir(parents=True, exist_ok=True)
+            for log_name in ("tests_inventory.csv", "warnings.log"):
+                staged_log = staged_logs / log_name
+                if staged_log.exists():
+                    shutil.copy2(staged_log, target_logs / log_name)
+
+            if force_merge and target_generated_exists:
+                print(f"[agt] sync: force-merged generated tests under {target_generated}")
+            else:
+                print(f"[agt] sync: updated generated tests under {target_generated}")
+            print(f"[agt] sync: preserved manual tests under {target_manual}")
+            return 0
+        finally:
+            shutil.rmtree(staging_root, ignore_errors=True)
 
     def build_target_context(self, r: Dict[str, str]) -> Optional[TargetContext]:
         repo = (r.get("repo", "") or "").strip().strip('"')
@@ -140,22 +457,11 @@ class Pipeline:
             return None
 
         m = self.mapping.get((repo, fqcn))
-        if not m:
-            print(f'[agt] Skip (no fatjar mapping): repo="{repo}" fqcn="{fqcn}"')
-            self.skipped += 1
-            return None
-
-        fatjar_path = (m.fatjar_path or "").strip()
-        if not fatjar_path or fatjar_path in ("FAIL", "SKIP-REPO"):
-            print(f'[agt] Skip (fatjar missing): repo="{repo}" fqcn="{fqcn}" fatjar="{fatjar_path or "EMPTY"}"')
-            self.skipped += 1
-            return None
-
-        sut_jar = Path(fatjar_path).resolve(strict=True)
-        if not sut_jar.exists():
-            print(f'[agt] Skip (fatjar path not found): repo="{repo}" fqcn="{fqcn}" fatjar="{sut_jar}"')
-            self.skipped += 1
-            return None
+        fatjar_path = (m.fatjar_path or "").strip() if m else ""
+        if fatjar_path and not _fatjar_value_is_missing(fatjar_path):
+            sut_jar = Path(fatjar_path).resolve()
+        else:
+            sut_jar = (self.out_dir / "__unused_sut_jar__").resolve()
 
         target_id = f"{repo_to_dir(repo)}_{fqcn.replace('.', '_')}"
         target_build = self.build_dir / "test-classes" / target_id
@@ -163,8 +469,46 @@ class Pipeline:
 
         sources: List[Path] = []
         manual_sources: List[Path] = []
+        manual_primary_sources: List[Path] = []
+        generated_primary_sources: List[Path] = []
         repo_bucket_gen = self.generated_dir / repo_to_dir(repo)
         repo_bucket_man = self.manual_dir / repo_to_dir(repo)
+        repo_root_for_deps = self.repos_dir / repo_to_dir(repo)
+
+        def _fallback_bucket_sources(bucket_root: Path) -> List[Path]:
+            target_bucket = bucket_root / fqcn
+            if not target_bucket.exists():
+                return []
+            candidates = sorted(
+                p for p in target_bucket.glob("*.java")
+                if looks_like_test_source(p)
+            )
+            return candidates
+
+        def _bucket_sources_for_target(bucket_root: Path, filenames: List[str]) -> List[Path]:
+            target_bucket = bucket_root / fqcn
+            ordered: List[Path] = []
+            seen_paths: Set[Path] = set()
+            unresolved: List[str] = []
+
+            for name in filenames:
+                raw_name = (name or "").strip()
+                if not raw_name or raw_name.lower() == "null":
+                    continue
+                candidate = target_bucket / raw_name
+                if candidate.exists():
+                    if candidate not in seen_paths:
+                        seen_paths.add(candidate)
+                        ordered.append(candidate)
+                else:
+                    unresolved.append(raw_name)
+
+            for candidate in find_tests_in_bucket(bucket_root, unresolved):
+                if candidate not in seen_paths:
+                    seen_paths.add(candidate)
+                    ordered.append(candidate)
+
+            return ordered
 
         # ---------- GENERATED ----------
         if gen_files:
@@ -186,12 +530,43 @@ class Pipeline:
 
             gen_scaf = [f for f in expanded if looks_like_scaffolding(f)]
             gen_non_scaf = [f for f in expanded if not looks_like_scaffolding(f)]
-            sources.extend(find_tests_in_bucket(repo_bucket_gen, gen_scaf))
-            sources.extend(find_tests_in_bucket(repo_bucket_gen, gen_non_scaf))
+            generated_candidates = _bucket_sources_for_target(repo_bucket_gen, gen_scaf)
+            generated_candidates.extend(_bucket_sources_for_target(repo_bucket_gen, gen_non_scaf))
+            if not generated_candidates:
+                generated_candidates = _fallback_bucket_sources(repo_bucket_gen)
+            for candidate in generated_candidates:
+                if generated_source_matches_target(candidate, fqcn):
+                    sources.append(candidate)
+                    if not looks_like_scaffolding(candidate.name):
+                        generated_primary_sources.append(candidate)
+                else:
+                    print(
+                        f'[agt] Ignore generated foreign source: repo="{repo}" fqcn="{fqcn}" file="{candidate.name}"'
+                    )
 
         # ---------- MANUAL ----------
         if man_files:
-            manual_primary = find_tests_in_bucket(repo_bucket_man, man_files)
+            manual_primary = _bucket_sources_for_target(repo_bucket_man, man_files)
+            if not manual_primary:
+                manual_primary = _fallback_bucket_sources(repo_bucket_man)
+            filtered_manual_primary: List[Path] = []
+            ignored_manual_primary: List[Path] = []
+            for candidate in manual_primary:
+                if looks_like_test_source(candidate):
+                    filtered_manual_primary.append(candidate)
+                else:
+                    ignored_manual_primary.append(candidate)
+            for candidate in ignored_manual_primary:
+                print(
+                    f'[agt] Ignore manual non-test source: repo="{repo}" fqcn="{fqcn}" file="{candidate.name}"'
+                )
+            if not filtered_manual_primary:
+                fallback_manual = _fallback_bucket_sources(repo_bucket_man)
+                for candidate in fallback_manual:
+                    if candidate not in filtered_manual_primary:
+                        filtered_manual_primary.append(candidate)
+            manual_primary = list(filtered_manual_primary)
+            manual_primary_sources = list(manual_primary)
             manual_all = expand_manual_sources(manual_primary)
             manual_sources = list(manual_all)
             sources.extend(manual_all)
@@ -210,9 +585,25 @@ class Pipeline:
             self.skipped += 1
             return None
 
-        # repo root for dependency search (ONLY used when javac asks)
-        repo_root_for_deps = self.repos_dir / repo_to_dir(repo)
+        generated_test_fqcn = first_test_fqcn_from_sources(generated_primary_sources, prefer_estest=True)
+        if self.args.auto_variant != "auto-original" and generated_test_fqcn:
+            sanitized_root = Path(self.args.sanitized_es_dir)
+            clear_pair_root(sanitized_root, repo, fqcn)
+            sanitized_pair = materialize_sanitized_pair(
+                source_root=self.generated_dir,
+                sanitized_root=sanitized_root,
+                repo=repo,
+                fqcn=fqcn,
+                test_fqcn=generated_test_fqcn,
+            )
+            if sanitized_pair is not None:
+                sources = list(manual_sources)
+                sources.append(sanitized_pair.test_src)
+                if sanitized_pair.scaffolding_src is not None and sanitized_pair.scaffolding_src.exists():
+                    sources.append(sanitized_pair.scaffolding_src)
+                generated_test_fqcn = sanitized_pair.test_fqcn
 
+        # repo root for dependency search (ONLY used when javac asks)
         return TargetContext(
             repo=repo,
             fqcn=fqcn,
@@ -223,8 +614,10 @@ class Pipeline:
             manual_sources=manual_sources,
             final_sources=list(sources),
             repo_root_for_deps=repo_root_for_deps,
-            module_rel=(m.module_rel or "").strip(),
-            build_tool=(m.build_tool or "").strip(),
+            module_rel=(m.module_rel or "").strip() if m else "",
+            build_tool=(m.build_tool or "").strip() if m else "",
+            manual_test_fqcn=first_test_fqcn_from_sources(manual_primary_sources, prefer_estest=False),
+            generated_test_fqcn=generated_test_fqcn,
         )
 
     def process_target(self, ctx: TargetContext) -> bool:
@@ -234,18 +627,32 @@ class Pipeline:
                     self.skipped += 1
                     return False
 
-                compiled_set = set(ctx.final_sources)
-                compiled_manual_sources = [s for s in ctx.manual_sources if s in compiled_set]
-                compiled_generated_sources = [s for s in ctx.final_sources if s not in set(ctx.manual_sources)]
+                manual_identities = {
+                    parse_package_and_class(source)
+                    for source in ctx.manual_sources
+                    if parse_package_and_class(source)[1]
+                }
+                compiled_manual_sources = [
+                    source
+                    for source in ctx.final_sources
+                    if parse_package_and_class(source) in manual_identities
+                ]
+                compiled_generated_sources = [
+                    source
+                    for source in ctx.final_sources
+                    if parse_package_and_class(source) not in manual_identities
+                ]
 
-                ctx.manual_test_fqcn = first_test_fqcn_from_sources(
-                    compiled_manual_sources,
-                    prefer_estest=False,
-                )
-                ctx.generated_test_fqcn = first_test_fqcn_from_sources(
-                    compiled_generated_sources,
-                    prefer_estest=True,
-                )
+                if not ctx.manual_test_fqcn or first_test_source_for_fqcn(compiled_manual_sources, ctx.manual_test_fqcn) is None:
+                    ctx.manual_test_fqcn = first_test_fqcn_from_sources(
+                        compiled_manual_sources,
+                        prefer_estest=False,
+                    )
+                if not ctx.generated_test_fqcn or first_test_source_for_fqcn(compiled_generated_sources, ctx.generated_test_fqcn) is None:
+                    ctx.generated_test_fqcn = first_test_fqcn_from_sources(
+                        compiled_generated_sources,
+                        prefer_estest=True,
+                    )
                 continue
 
             if not step.run(ctx):
@@ -256,6 +663,7 @@ class Pipeline:
     def build_steps(self) -> List[Step]:
         return [
             CompileStep(self),
+            SanitizeEvoSuiteStep(self),
             AdoptedFixStep(self),
             AdoptedCommentStep(self),
             CovfilterStep(self),
