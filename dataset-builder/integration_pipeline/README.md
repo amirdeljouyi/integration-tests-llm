@@ -42,7 +42,7 @@ From `integration_pipeline`:
 CLI usage (direct):
 
 ```bash
-python -m src [options...] <tests_inventory.csv> <cut_to_fatjar_map.csv> <command>
+python -m src [options...] <command>
 ```
 
 Defaults:
@@ -55,10 +55,12 @@ Defaults:
 Examples:
 
 ```bash
-python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> coverage compare-reduced --top-n 5
-python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> reduce --variants adopted,agentic --max-tests 5
-python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> run --variants auto,adopted
-python -m src <tests_inventory.csv> <cut_to_fatjar_map.csv> filter --variants all
+python -m src generate-auto
+python -m src sync --variants auto
+python -m src coverage compare-reduced --top-n 5
+python -m src reduce --variants adopted,agentic --max-tests 5
+python -m src run --variants auto,adopted
+python -m src filter --variants all
 ```
 
 ## Steps
@@ -68,45 +70,50 @@ Some commands are grouped under subcommands: `llm`, `adopted`, and `coverage`.
 
 Priority order (recommended run sequence):
 
-1) `compile`
-2) `run`
-3) `filter`  
-4) `reduce`  
-5) `llm all`  
-6) `llm improve`  
-7) `llm integrate`  
-8) `llm integrate-sbs`  
-9) `agent`  
-10) `adopted fix`  
-11) `adopted comment`  
-12) `adopted filter`  
-13) `adopted reduce`  
-14) `compare`  
-15) `adopted run`  
-16) `pull-request-maker`  
-17) `coverage compare`  
-18) `coverage compare-reduced`
+1) `generate-auto`
+2) `sync --variants auto`
+3) `compile`
+4) `run`
+5) `filter`  
+6) `reduce`  
+7) `llm all`  
+8) `llm improve`  
+9) `llm integrate`  
+10) `llm integrate-sbs`  
+11) `llm agent`  
+12) `repair fix`  
+13) `repair comment`  
+14) `filter --variants adopted,agentic`  
+15) `reduce --variants adopted,agentic --max-tests 5`  
+16) `compare`  
+17) `run --variants adopted,agentic`  
+18) `pull-request-maker`  
+19) `coverage compare`  
+20) `coverage compare-reduced`
 
 Step descriptions:
 
-- `compile` - compile generated and manual tests, resolve dependencies, and build test classpaths under `build/`. Command: `compile`.
-- `run` - execute tests with JaCoCo and write `results/coverage/coverage_summary.csv` (`--variants`). Command: `run --variants auto,manual` (auto) and `run --variants adopted,agentic` (adopted).
-- `filter` - run CoverageFilterApp to identify tests with coverage signal (uses fatjar + libs, `--variants`). Command: `filter --variants auto,manual` (auto) and `filter --variants adopted,agentic` (adopted).
-- `reduce` - create reduced tests (top-N, `--max-tests`, `--variants`) based on coverage deltas. Command: `reduce --variants auto` (auto) and `reduce --variants adopted,agentic` (adopted). Outputs go under `results/reduced/<variant>/`.
+- `generate-auto` - run `../run-agt/run-agt.sh` with the configured CUT-to-fatjar map, then run `../collect_tests.sh` so the generated tests land in `../collected-tests/generated` and refresh `../collected-tests/_logs/tests_inventory.csv`. By default it skips CUTs that already have generated tests; use `--no-skip-existing` to force reruns. Command: `generate-auto --skip-existing`.
+- `sync` - run `../collect_tests.sh` against the existing `../run-agt/result` output in a staging directory, then refresh only `../collected-tests/generated` and inventory/logs. It intentionally does not modify `../collected-tests/manual`. When `../collected-tests/generated` already exists, rerun with `--force` to merge the staged output instead of replacing the tree. Right now only `--variants auto` is supported. Command: `sync --variants auto --force`.
+- `compile` - compile generated and manual tests, resolve dependencies, retry safe source-level compile remediation for `auto`/`manual` test sources by adjusting exception declarations, and write `results/compile/compile_summary.csv`. Command: `compile`.
+- `run` - execute tests with JaCoCo and write `results/coverage/coverage_summary.csv`, `results/coverage/coverage_errors.csv` for failed/skipped/not-compiled runs, `results/coverage/coverage_zero_hit.csv` for passed tests that did not hit the target class, and `results/coverage/coverage_report_issues.csv` for passed tests where coverage extraction/reporting could not be mapped back to the target class (`--variants`); for `auto` and `manual`, it also retries safe compile remediation before recording the final outcome. Command: `run --variants auto,manual` (auto) and `run --variants adopted,agentic` (adopted).
+- `filter` - run CoverageFilterApp to identify tests with coverage signal (uses fatjar + libs, `--variants`, `--skip-passed`, `--skip-passed-by-status`). Command: `filter --variants auto,manual` (auto) and `filter --variants adopted,agentic` (adopted).
+- `reduce` - create reduced tests (top-N, `--max-tests`, `--variants`) based on coverage deltas. It also writes per-target reduction summaries to `results/reduced/<variant>/reduce_summary.csv`. Command: `reduce --variants auto` (auto) and `reduce --variants adopted,agentic` (adopted). Outputs go under `results/reduced/<variant>/`.
 - `llm all` - send reduced tests + manual tests (promptType `integration_all`) to produce adopted tests. Subcommand: `llm all`.
 - `llm improve` - send reduced tests only (promptType `integration_improvement`) to produce `_Improved` tests. Subcommand: `llm improve`.
 - `llm integrate` - send `_Improved` tests + manual tests (promptType `integration_merge`) to produce adopted tests. Subcommand: `llm integrate`.
 - `llm integrate-sbs` - send `_Improved` tests + manual tests (promptType `integration_step_by_step`) to produce `_Adopted_StepByStep` tests. Subcommand: `llm integrate-sbs`.
-- `agent` - use Codex CLI to integrate `_Improved` tests with manual tests and output adopted tests (defaults to CLI model).
-- `adopted fix` - normalize adopted tests (via `src/steps/fix.py`) by removing `_scaffolding` imports/extends and adding `throws Exception` to test methods (`--variants`). Command: `adopted fix --variants adopted,agentic`.
-- `adopted comment` - iteratively comment compile-error lines in `_Adopted` and `_Adopted_Agentic` tests until they compile (`--variants`). Command: `adopted comment --variants adopted,agentic`.
-- `adopted filter` - run CoverageFilterApp for `_Adopted` and `_Adopted_Agentic` tests against manual tests. Command: `filter --variants adopted,agentic`.
-- `adopted reduce` - reduce `_Adopted` and `_Adopted_Agentic` tests (default top 5; `--max-tests`). Command: `reduce --variants adopted,agentic --max-tests 5`.
+- `llm agent` - use Codex CLI to integrate `_Improved` tests with manual tests and output adopted tests (defaults to CLI model).
+- `repair fix` - normalize adopted tests (via `src/steps/fix.py`) by removing `_scaffolding` imports/extends and adding `throws Exception` to test methods. Command: `repair fix`.
+- `repair comment` - iteratively comment compile-error lines in `_Adopted` and `_Adopted_Agentic` tests until they compile. Command: `repair comment`.
+- `adopted` - deprecated command group; prefer top-level commands with `--variants adopted,agentic`.
+- `adopted filter` - deprecated alias for `filter --variants adopted,agentic`.
+- `adopted reduce` - deprecated alias for `reduce --variants adopted,agentic --max-tests 5`.
+- `adopted run` - deprecated alias for `run --variants adopted,agentic`.
 - `compare` - compare adopted vs generated tests (PMD/CPD + tri-compare metrics).
-- `adopted run` - execute adopted and agentic tests with JaCoCo and write `results/coverage/adopted_coverage_summary.csv`. Command: `run --variants adopted,agentic`.
-- `pull-request-maker` - generate per-CUT PR drafts in `results/pr/` from `docs/PR_TEMPLATE.md`.
 - `coverage compare` - compare coverage for manual/auto/adopted/agentic tests; writes `results/coverage/coverage_compare.csv`. Command: `coverage compare`.
 - `coverage compare-reduced` - compare coverage for reduced auto/adopted/agentic tests using a shared top-N (`--top-n`, default 5); writes `results/coverage/coverage_compare_reduced.csv`. Command: `coverage compare-reduced --top-n 5`.
+- `pull-request-maker` - generate per-CUT PR drafts in `results/pr/` from `docs/PR_TEMPLATE.md`.
 - `all` - run all steps in the priority order above.
 
 ## Inputs
@@ -117,21 +124,26 @@ Step descriptions:
 - `coverage-filter-1.0-SNAPSHOT.jar`
 - `jacoco-deps/org.jacoco.agent-run-0.8.14.jar`
 - adopted tests output root (`--adopted-dir`, default `results/llm-out`)
-- Codex CLI must be installed and logged in for `agent` step
+- Codex CLI must be installed and logged in for `llm agent` step
 - Agent prompt guardrails: `--agent-max-prompt-chars` (default 60000)
 
 ## Outputs
 
 - `build/` compiled test classes
 - `tmp/` logs, coverage exec files, and summaries
+  - `results/compile/compile_summary.csv`
   - `results/coverage/coverage_summary.csv`
   - `results/coverage/adopted_coverage_summary.csv`
+  - `results/coverage/coverage_errors.csv`
 - `results/` intermediate artifacts (covfilter/reduced/compare)
   - `results/covfilter/` (generated covfilter outputs)
 - `results/reduced/auto/` (reduced generated tests)
 - `results/covfilter-adopted/` (adopted covfilter outputs)
 - `results/reduced/adopted/` (reduced adopted tests)
 - `results/reduced/agentic/` (reduced agentic tests)
+  - `results/reduced/auto/reduce_summary.csv`
+  - `results/reduced/adopted/reduce_summary.csv`
+  - `results/reduced/agentic/reduce_summary.csv`
   - `results/compare/` (comparison CSVs)
     - `results/compare/compare.csv`
     - `results/compare/tri_compare.csv`

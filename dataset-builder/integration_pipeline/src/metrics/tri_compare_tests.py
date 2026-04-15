@@ -429,6 +429,7 @@ class TriComparator:
             auto_path: str,
             adopted_path: str,
             rep: TriReport,
+            auto_variant: str = "auto",
             adopted_variant: str = "adopted",
             include_auto: bool = True,
     ) -> None:
@@ -439,6 +440,7 @@ class TriComparator:
             auto_path=auto_path,
             adopted_path=adopted_path,
             rep=rep,
+            auto_variant=auto_variant,
             adopted_variant=adopted_variant,
             include_auto=include_auto,
         )
@@ -454,12 +456,13 @@ def write_rows_csv(
     auto_path: str,
     adopted_path: str,
     rep,
+    auto_variant: str = "auto",
     adopted_variant: str = "adopted",
     include_auto: bool = True,
 ):
     """
     Writes TWO rows:
-      - variant=auto
+      - variant=<auto_variant>
       - variant=<adopted_variant>
     Each row contains metrics vs the same manual file.
     """
@@ -484,7 +487,7 @@ def write_rows_csv(
     ]
 
     def row_for(variant: str):
-        if variant == "auto":
+        if variant == auto_variant:
             sim = rep.auto_vs_manual
             cb = rep.codebleu_auto_vs_manual
             clos = rep.closeness_score_auto
@@ -525,5 +528,5 @@ def write_rows_csv(
             writer.writerow(header)
 
         if include_auto:
-            writer.writerow(row_for("auto"))
+            writer.writerow(row_for(auto_variant))
         writer.writerow(row_for(adopted_variant))

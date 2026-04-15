@@ -117,6 +117,7 @@ class CompareRunner:
             adopted_path: Path,
             manual_path: Path,
             out_csv: Path,
+            auto_variant: str = "auto",
             adopted_variant: str = "adopted",
             include_auto: bool = True,
     ) -> None:
@@ -139,6 +140,7 @@ class CompareRunner:
             auto_path=str(auto_path),
             adopted_path=str(adopted_path),
             rep=rep,
+            auto_variant=auto_variant,
             adopted_variant=adopted_variant,
             include_auto=include_auto,
         )
@@ -153,6 +155,7 @@ def run_tri_compare_with_log(
         manual_path: Path,
         out_csv: Path,
         log_path: Path,
+        auto_variant: str = "auto",
         adopted_variant: str = "adopted",
         include_auto: bool = True,
 ) -> None:
@@ -164,6 +167,7 @@ def run_tri_compare_with_log(
             adopted_path=adopted_path,
             manual_path=manual_path,
             out_csv=out_csv,
+            auto_variant=auto_variant,
             adopted_variant=adopted_variant,
             include_auto=include_auto,
         )
@@ -180,6 +184,7 @@ def compare_tests(
         adopted_file: Path,
         out_csv: Path,
         minimum_tokens: int = 50,
+        auto_variant: str = "auto",
         candidate_variant: str = "adopted",
         include_auto: bool = True,
         repo: str = "",
@@ -194,7 +199,7 @@ def compare_tests(
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     write_compare_row(
         out_csv=out_csv,
-        variant="auto" if include_auto else None,
+        variant=auto_variant if include_auto else None,
         repo=repo,
         fqcn=fqcn,
         auto_pmd=pmd_agt.violations,
