@@ -23,7 +23,9 @@ from .common import (
 _REPO_JAVA_INDEX_CACHE: dict[str, List[Path]] = {}
 _REPO_JAVA_STEM_INDEX_CACHE: dict[str, Dict[str, List[Path]]] = {}
 _M2_JAR_PATHS_CACHE: Optional[List[Path]] = None
+_GRADLE_JAR_PATHS_CACHE: Optional[List[Path]] = None
 _M2_CLASS_JARS_CACHE: dict[str, List[str]] = {}
+_RUNTIME_DEP_CP_CACHE: dict[tuple[str, int], str] = {}
 _MAVEN_MODULE_BUILD_CACHE: dict[tuple[str, str], bool] = {}
 _JAVAC_INTERNAL_EXPORTS = [
     "--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
@@ -335,6 +337,34 @@ def _match_repo_source_for_collected_file(repo_root: Path, java_file: Path) -> O
     return None
 
 
+def _match_repo_source_for_generated_test(repo_root: Path, java_file: Path) -> Optional[Path]:
+    pkg, cls = parse_package_and_class(java_file)
+    if not cls or "_" not in cls:
+        return None
+
+    base_cls = cls.split("_", 1)[0].strip()
+    if not base_cls or base_cls == cls:
+        return None
+
+    preferred: List[Path] = []
+    fallback: List[Path] = []
+    for candidate in _repo_java_stem_index(repo_root).get(base_cls, []):
+        cand_pkg, cand_cls = parse_package_and_class(candidate)
+        if cand_cls != base_cls:
+            continue
+        if pkg and cand_pkg != pkg:
+            continue
+        if is_probably_test_filename(candidate.name):
+            fallback.append(candidate)
+        else:
+            preferred.append(candidate)
+
+    matches = preferred or fallback
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
 def prefer_repo_manual_sources(repo_root: Optional[Path], java_files: Sequence[Path]) -> List[Path]:
     if repo_root is None or not repo_root.exists():
         return list(java_files)
@@ -474,6 +504,16 @@ def _extract_missing_import_targets(log_text: str) -> List[str]:
                 found_token = True
             if found_token:
                 break
+
+    for raw_line in lines:
+        match = re.search(r"class file for\s+([A-Za-z0-9_.$]+)\s+not found", raw_line)
+        if not match:
+            continue
+        normalized = _normalize_import_target_class(match.group(1))
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        targets.append(normalized)
     return targets
 
 
@@ -556,16 +596,56 @@ def _local_maven_jars() -> List[Path]:
     return _M2_JAR_PATHS_CACHE
 
 
+def _local_gradle_jars() -> List[Path]:
+    global _GRADLE_JAR_PATHS_CACHE
+    if _GRADLE_JAR_PATHS_CACHE is not None:
+        return _GRADLE_JAR_PATHS_CACHE
+
+    repo = Path.home() / ".gradle" / "caches" / "modules-2" / "files-2.1"
+    if not repo.exists():
+        _GRADLE_JAR_PATHS_CACHE = []
+        return _GRADLE_JAR_PATHS_CACHE
+
+    _GRADLE_JAR_PATHS_CACHE = sorted(repo.rglob("*.jar"))
+    return _GRADLE_JAR_PATHS_CACHE
+
+
+def _local_dependency_jars() -> List[Path]:
+    jars: List[Path] = []
+    seen: Set[str] = set()
+    for jar_path in [*_local_maven_jars(), *_local_gradle_jars()]:
+        jar_str = str(jar_path)
+        if jar_str in seen:
+            continue
+        seen.add(jar_str)
+        jars.append(jar_path)
+    return jars
+
+
 def _jar_score_for_class_target(jar_path: Path, class_fqcn: str) -> int:
     lowered = str(jar_path).lower()
+    collapsed = re.sub(r"[^a-z0-9]+", "", lowered)
     tokens = [part.lower() for part in class_fqcn.split(".") if len(part) > 2]
     score = 0
     for token in tokens[:-1]:
-        if token in lowered:
+        if token in lowered or token in collapsed:
             score += 2
-    if tokens and tokens[-1] in lowered:
+    if tokens and (tokens[-1] in lowered or tokens[-1] in collapsed):
         score += 1
     return score
+
+
+def _version_sort_key(version: str) -> tuple:
+    parts = re.split(r"([0-9]+)", version or "")
+    key = []
+    for part in parts:
+        if not part:
+            continue
+        if part.isdigit():
+            key.append((1, int(part)))
+        else:
+            key.append((0, part.lower()))
+    return tuple(key)
 
 
 def _jar_contains_class_entry(jar_path: Path, entry_name: str) -> bool:
@@ -586,19 +666,16 @@ def _resolve_m2_jars_for_import_targets(import_targets: Sequence[str]) -> str:
         cached = _M2_CLASS_JARS_CACHE.get(class_target)
         if cached is None:
             entry_name = class_target.replace(".", "/") + ".class"
-            ranked = sorted(
-                _local_maven_jars(),
-                key=lambda jar_path: (_jar_score_for_class_target(jar_path, class_target), str(jar_path)),
-                reverse=True,
-            )
-            matches: List[str] = []
-            for jar_path in ranked[:200]:
-                if _jar_score_for_class_target(jar_path, class_target) <= 0:
+            ranked_matches: List[tuple[int, tuple, str]] = []
+            for jar_path in _local_dependency_jars():
+                score = _jar_score_for_class_target(jar_path, class_target)
+                if score <= 0:
                     continue
                 if not _jar_contains_class_entry(jar_path, entry_name):
                     continue
-                matches.append(str(jar_path))
-            cached = matches
+                ranked_matches.append((score, _version_sort_key(jar_path.parent.name), str(jar_path)))
+            ranked_matches.sort(reverse=True)
+            cached = [ranked_matches[0][2]] if ranked_matches else []
             _M2_CLASS_JARS_CACHE[class_target] = cached
         for jar_path in cached:
             if jar_path in seen_jars:
@@ -610,6 +687,27 @@ def _resolve_m2_jars_for_import_targets(import_targets: Sequence[str]) -> str:
 
 def _resolve_external_classpath_from_log(log_text: str) -> str:
     return _resolve_m2_jars_for_import_targets(_extract_missing_import_targets(log_text))
+
+
+def resolve_external_runtime_classpath_from_output(output: str) -> str:
+    targets: List[str] = []
+    seen: Set[str] = set()
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = re.search(r"(?:NoClassDefFoundError|ClassNotFoundException):\s+([A-Za-z0-9_.$/]+)", line)
+        if not match:
+            continue
+        target = match.group(1).replace("/", ".")
+        normalized = _normalize_import_target_class(target)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        targets.append(normalized)
+    direct_cp = _resolve_m2_jars_for_import_targets(targets)
+    transitive_cp = _expand_runtime_dependency_cp(direct_cp)
+    return _merge_classpath_parts([direct_cp, transitive_cp])
 
 
 def _java_source_root(java_file: Path) -> Optional[Path]:
@@ -739,6 +837,8 @@ def _related_module_rels(
             module_dir = _nearest_build_module_dir(resolved_source, repo_root)
         else:
             counterpart = _match_repo_source_for_collected_file(repo_root, source)
+            if counterpart is None:
+                counterpart = _match_repo_source_for_generated_test(repo_root, source)
             if counterpart is not None:
                 module_dir = _nearest_build_module_dir(counterpart, repo_root)
         _append_unique_module(module_rels, seen, _module_rel_from_dir(repo_root, module_dir))
@@ -1181,6 +1281,7 @@ def compile_test_set_smart(
 
 _MODULE_RUNTIME_CP_CACHE: dict[tuple[str, str, str], str] = {}
 _RUNTIME_CP_CACHE: dict[tuple[str, tuple[str, ...], str], str] = {}
+_MAVEN_CLASSPATH_CACHE: dict[tuple[tuple[str, ...], str], str] = {}
 
 
 def _norm_module_rel(module_rel: str) -> str:
@@ -1211,13 +1312,23 @@ def _maven_cmd(repo_root: Path) -> str:
 
 
 def _run_maven_classpath(cmd: Sequence[str], cwd: Path) -> str:
+    key = (tuple(cmd), str(cwd.resolve()))
+    cached = _MAVEN_CLASSPATH_CACHE.get(key)
+    if cached is not None:
+        return cached
+
     with tempfile.NamedTemporaryFile(prefix="agt-mvn-cp-", delete=False) as handle:
         outcp = Path(handle.name)
     try:
         full_cmd = [*cmd, f"-Dmdep.outputFile={outcp}"]
         proc = subprocess.run(full_cmd, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if proc.returncode == 0 and outcp.exists():
-            return outcp.read_text(encoding="utf-8", errors="ignore").strip()
+        cp = ""
+        if outcp.exists():
+            cp = outcp.read_text(encoding="utf-8", errors="ignore").strip()
+        if proc.returncode == 0 or cp:
+            _MAVEN_CLASSPATH_CACHE[key] = cp
+            return cp
+        _MAVEN_CLASSPATH_CACHE[key] = ""
         return ""
     finally:
         outcp.unlink(missing_ok=True)
@@ -1304,6 +1415,277 @@ def _jar_path_from_coords(group_id: str, artifact_id: str, version: str) -> Path
 
 def _pom_path_from_coords(group_id: str, artifact_id: str, version: str) -> Path:
     return _local_maven_repo() / Path(*group_id.split(".")) / artifact_id / version / f"{artifact_id}-{version}.pom"
+
+
+def _gradle_jar_path_from_coords(group_id: str, artifact_id: str, version: str) -> Optional[Path]:
+    gradle_root = Path.home() / ".gradle" / "caches" / "modules-2" / "files-2.1" / group_id / artifact_id / version
+    if not gradle_root.exists():
+        return None
+    matches = sorted(gradle_root.glob(f"*/{artifact_id}-{version}*.jar"))
+    if not matches:
+        return None
+    exact = [match for match in matches if match.name == f"{artifact_id}-{version}.jar"]
+    return exact[0] if exact else matches[0]
+
+
+def _local_jar_path_from_coords(group_id: str, artifact_id: str, version: str) -> Optional[Path]:
+    m2_path = _jar_path_from_coords(group_id, artifact_id, version)
+    if m2_path.exists():
+        return m2_path
+    return _gradle_jar_path_from_coords(group_id, artifact_id, version)
+
+
+def _jar_coords_from_path(jar_path: Path) -> Optional[Tuple[str, str, str]]:
+    resolved = jar_path.resolve()
+    parts = resolved.parts
+    if ".m2" in parts and "repository" in parts:
+        repo_idx = parts.index("repository")
+        if len(parts) - repo_idx >= 4:
+            group_id = ".".join(parts[repo_idx + 1 : -3])
+            artifact_id = parts[-3]
+            version = parts[-2]
+            if group_id and artifact_id and version:
+                return group_id, artifact_id, version
+    if ".gradle" in parts and "files-2.1" in parts:
+        gradle_idx = parts.index("files-2.1")
+        if len(parts) - gradle_idx >= 6:
+            group_id = parts[gradle_idx + 1]
+            artifact_id = parts[gradle_idx + 2]
+            version = parts[gradle_idx + 3]
+            if group_id and artifact_id and version:
+                return group_id, artifact_id, version
+    return None
+
+
+def _embedded_pom_root(jar_path: Path, group_id: str, artifact_id: str) -> Optional[ET.Element]:
+    preferred = f"META-INF/maven/{group_id}/{artifact_id}/pom.xml"
+    try:
+        with zipfile.ZipFile(jar_path) as handle:
+            names = handle.namelist()
+            if preferred in names:
+                return ET.fromstring(handle.read(preferred))
+            for name in names:
+                if name.endswith("/pom.xml") and name.startswith("META-INF/maven/"):
+                    return ET.fromstring(handle.read(name))
+    except (OSError, zipfile.BadZipFile, ET.ParseError):
+        return None
+    return None
+
+
+def _pom_roots_for_coords(
+    group_id: str,
+    artifact_id: str,
+    version: str,
+    *,
+    jar_path: Optional[Path] = None,
+) -> List[ET.Element]:
+    pom_path = _pom_path_from_coords(group_id, artifact_id, version)
+    if pom_path.exists():
+        roots: List[ET.Element] = []
+        for current_pom in _maven_pom_chain_from_pom(pom_path):
+            try:
+                roots.append(ET.parse(current_pom).getroot())
+            except ET.ParseError:
+                continue
+        if roots:
+            return roots
+    if jar_path is not None:
+        embedded_root = _embedded_pom_root(jar_path, group_id, artifact_id)
+        if embedded_root is not None:
+            return [embedded_root]
+    return []
+
+
+def _is_probably_test_dependency(group_id: str, artifact_id: str) -> bool:
+    lowered_group = group_id.lower()
+    lowered_artifact = artifact_id.lower()
+    test_markers = (
+        "junit",
+        "testng",
+        "assertj",
+        "hamcrest",
+        "mockito",
+        "kotest",
+        "awaitility",
+        "arquillian",
+        "evosuite",
+        "rest-assured",
+    )
+    return any(marker in lowered_group or marker in lowered_artifact for marker in test_markers)
+
+
+def _runtime_dependency_cp_for_coords(
+    group_id: str,
+    artifact_id: str,
+    version: str,
+    *,
+    jar_path: Optional[Path] = None,
+    max_depth: int = 2,
+    seen_coords: Optional[Set[Tuple[str, str, str]]] = None,
+) -> str:
+    if max_depth <= 0:
+        return ""
+    if seen_coords is None:
+        seen_coords = set()
+    coord_key = (group_id, artifact_id, version)
+    if coord_key in seen_coords:
+        return ""
+    seen_coords.add(coord_key)
+
+    cache_key = (f"{group_id}:{artifact_id}:{version}", max_depth)
+    if jar_path is None and cache_key in _RUNTIME_DEP_CP_CACHE:
+        return _RUNTIME_DEP_CP_CACHE[cache_key]
+
+    parsed_roots = _pom_roots_for_coords(group_id, artifact_id, version, jar_path=jar_path)
+    if not parsed_roots:
+        return ""
+
+    props: Dict[str, str] = {}
+    dependency_management: Dict[Tuple[str, str], str] = {}
+    for root in parsed_roots:
+        current_group_id = _pom_direct_child_text(root, "groupId")
+        current_version = _pom_direct_child_text(root, "version")
+        current_artifact_id = _pom_direct_child_text(root, "artifactId")
+        parent = root.find(_pom_tag("parent"))
+        if parent is not None:
+            if not current_group_id:
+                current_group_id = _resolve_props(_pom_direct_child_text(parent, "groupId"), props)
+            if not current_version:
+                current_version = _resolve_props(_pom_direct_child_text(parent, "version"), props)
+        current_group_id = _resolve_props(current_group_id, props)
+        current_version = _resolve_props(current_version, props)
+        current_artifact_id = _resolve_props(current_artifact_id, props)
+        props.update(
+            {
+                "project.groupId": current_group_id,
+                "project.version": current_version,
+                "project.artifactId": current_artifact_id,
+                "groupId": current_group_id,
+                "version": current_version,
+                "artifactId": current_artifact_id,
+            }
+        )
+
+        properties = root.find(_pom_tag("properties"))
+        if properties is not None:
+            for child in list(properties):
+                tag = child.tag.rsplit("}", 1)[-1]
+                value = _resolve_props((child.text or "").strip(), props)
+                if value:
+                    props[tag] = value
+
+    for root in parsed_roots:
+        dep_mgmt = root.find(_pom_tag("dependencyManagement"))
+        if dep_mgmt is None:
+            continue
+        dependencies = dep_mgmt.find(_pom_tag("dependencies"))
+        if dependencies is None:
+            continue
+        for dep in dependencies.findall(_pom_tag("dependency")):
+            dep_group_id = _resolve_props(_pom_direct_child_text(dep, "groupId"), props)
+            dep_artifact_id = _resolve_props(_pom_direct_child_text(dep, "artifactId"), props)
+            dep_version = _resolve_props(_pom_direct_child_text(dep, "version"), props)
+            dep_type = _resolve_props(_pom_direct_child_text(dep, "type"), props) or "jar"
+            dep_scope = _resolve_props(_pom_direct_child_text(dep, "scope"), props) or "compile"
+            if dep_type == "pom" and dep_scope == "import" and dep_group_id and dep_artifact_id and dep_version:
+                dependency_management.update(
+                    _collect_imported_bom_versions(_pom_path_from_coords(dep_group_id, dep_artifact_id, dep_version))
+                )
+                continue
+            if dep_group_id and dep_artifact_id and dep_version:
+                dependency_management[(dep_group_id, dep_artifact_id)] = dep_version
+
+    jar_paths: List[str] = []
+    seen_jars: Set[str] = set()
+    for root in parsed_roots:
+        dependencies = root.find(_pom_tag("dependencies"))
+        if dependencies is None:
+            continue
+        for dep in dependencies.findall(_pom_tag("dependency")):
+            dep_group_id = _resolve_props(_pom_direct_child_text(dep, "groupId"), props)
+            dep_artifact_id = _resolve_props(_pom_direct_child_text(dep, "artifactId"), props)
+            dep_version = _resolve_props(_pom_direct_child_text(dep, "version"), props) or dependency_management.get(
+                (dep_group_id, dep_artifact_id),
+                "",
+            )
+            dep_scope = _resolve_props(_pom_direct_child_text(dep, "scope"), props) or "compile"
+            dep_type = _resolve_props(_pom_direct_child_text(dep, "type"), props) or "jar"
+            dep_optional = _resolve_props(_pom_direct_child_text(dep, "optional"), props).lower() == "true"
+            if not dep_group_id or not dep_artifact_id or not dep_version:
+                continue
+            if dep_optional or dep_type == "pom" or dep_scope in {"test", "provided", "system", "import"}:
+                continue
+            if _is_probably_test_dependency(dep_group_id, dep_artifact_id):
+                continue
+            dep_jar_path = _local_jar_path_from_coords(dep_group_id, dep_artifact_id, dep_version)
+            if dep_jar_path is None or not dep_jar_path.exists():
+                continue
+            dep_jar_str = str(dep_jar_path)
+            if dep_jar_str not in seen_jars:
+                seen_jars.add(dep_jar_str)
+                jar_paths.append(dep_jar_str)
+            nested_cp = _runtime_dependency_cp_for_coords(
+                dep_group_id,
+                dep_artifact_id,
+                dep_version,
+                jar_path=dep_jar_path,
+                max_depth=max_depth - 1,
+                seen_coords=seen_coords,
+            )
+            if not nested_cp:
+                continue
+            for entry in nested_cp.split(":"):
+                nested_entry = entry.strip()
+                if not nested_entry or nested_entry in seen_jars:
+                    continue
+                seen_jars.add(nested_entry)
+                jar_paths.append(nested_entry)
+
+    merged = _merge_classpath_parts(jar_paths)
+    if jar_path is None:
+        _RUNTIME_DEP_CP_CACHE[cache_key] = merged
+    return merged
+
+
+def _expand_runtime_dependency_cp(classpath: str, *, max_depth: int = 2) -> str:
+    cache_key = (classpath, max_depth)
+    cached = _RUNTIME_DEP_CP_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    extras: List[str] = []
+    seen_entries: Set[str] = set()
+    seen_coords: Set[Tuple[str, str, str]] = set()
+    for raw_entry in classpath.split(":"):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        jar_path = Path(entry)
+        if not jar_path.exists() or not jar_path.is_file() or jar_path.suffix != ".jar":
+            continue
+        coords = _jar_coords_from_path(jar_path)
+        if coords is None:
+            continue
+        dep_cp = _runtime_dependency_cp_for_coords(
+            coords[0],
+            coords[1],
+            coords[2],
+            jar_path=jar_path,
+            max_depth=max_depth,
+            seen_coords=seen_coords,
+        )
+        if not dep_cp:
+            continue
+        for dep_entry in dep_cp.split(":"):
+            candidate = dep_entry.strip()
+            if not candidate or candidate in seen_entries or candidate == entry:
+                continue
+            seen_entries.add(candidate)
+            extras.append(candidate)
+
+    merged = _merge_classpath_parts(extras)
+    _RUNTIME_DEP_CP_CACHE[cache_key] = merged
+    return merged
 
 
 def _collect_imported_bom_versions(
@@ -1483,8 +1865,17 @@ def _maven_runtime_cp(repo_root: Path, module_rel: str) -> str:
         return ""
 
     cp_parts: List[str] = []
-    for scope in ("test", "provided"):
-        base_cmd = [
+    scope_fallbacks = ("test", "compile", "runtime", "provided")
+
+    def first_nonempty_cp(cwd: Path, cmd_factory, *, fallback_scopes: Sequence[str]) -> str:
+        for scope in fallback_scopes:
+            cp = _run_maven_classpath(cmd_factory(scope), cwd)
+            if cp:
+                return cp
+        return ""
+
+    def base_cmd_for_scope(scope: str) -> List[str]:
+        return [
             _maven_cmd(repo_root),
             "-q",
             "-DskipTests",
@@ -1492,11 +1883,9 @@ def _maven_runtime_cp(repo_root: Path, module_rel: str) -> str:
             "-Dmdep.pathSeparator=:",
             f"-Dmdep.includeScope={scope}",
         ]
-        cp = _run_maven_classpath(base_cmd, module_dir)
-        if cp:
-            cp_parts.append(cp)
 
-        root_cmd = [
+    def root_cmd_for_scope(scope: str) -> List[str]:
+        return [
             _maven_cmd(repo_root),
             "-q",
             "-pl",
@@ -1507,13 +1896,29 @@ def _maven_runtime_cp(repo_root: Path, module_rel: str) -> str:
             "-Dmdep.pathSeparator=:",
             f"-Dmdep.includeScope={scope}",
         ]
-        cp = _run_maven_classpath(root_cmd, repo_root)
-        if cp:
-            cp_parts.append(cp)
+
+    module_cp = first_nonempty_cp(module_dir, base_cmd_for_scope, fallback_scopes=("test",))
+    if module_cp:
+        cp_parts.append(module_cp)
+
+    root_cp = first_nonempty_cp(repo_root, root_cmd_for_scope, fallback_scopes=("test",))
+    if root_cp:
+        cp_parts.append(root_cp)
+    else:
+        if not module_cp:
+            module_cp = first_nonempty_cp(module_dir, base_cmd_for_scope, fallback_scopes=scope_fallbacks[1:])
+            if module_cp:
+                cp_parts.append(module_cp)
+        root_cp = first_nonempty_cp(repo_root, root_cmd_for_scope, fallback_scopes=scope_fallbacks[1:])
+        if root_cp:
+            cp_parts.append(root_cp)
 
     declared_cp = _maven_declared_dependency_cp(repo_root, module_rel)
     if declared_cp:
         cp_parts.append(declared_cp)
+        expanded_declared_cp = _expand_runtime_dependency_cp(declared_cp)
+        if expanded_declared_cp:
+            cp_parts.append(expanded_declared_cp)
 
     return _merge_classpath_parts(cp_parts)
 
@@ -1601,7 +2006,11 @@ def resolve_repo_runtime_classpath(
     if tool not in {"maven", "gradle"}:
         tool = _detect_build_tool(repo_root)
 
-    module_rels = tuple(_related_module_rels(repo_root, module_rel, source_files, log_text))
+    module_rels_list = _related_module_rels(repo_root, module_rel, source_files, log_text)
+    normalized_module_rels = [_norm_module_rel(rel) for rel in module_rels_list]
+    if any(normalized_module_rels):
+        module_rels_list = [rel for rel in module_rels_list if _norm_module_rel(rel)]
+    module_rels = tuple(module_rels_list)
     key = (str(repo_root.resolve()), module_rels, tool)
     if key in _RUNTIME_CP_CACHE:
         return _RUNTIME_CP_CACHE[key]
@@ -1770,11 +2179,17 @@ def remove_unused_imports(path: str, dry_run: bool) -> bool:
 def expand_same_package_support_sources(repo_root: Optional[Path], java_files: Sequence[Path]) -> List[Path]:
     expanded: List[Path] = []
     seen: Set[Path] = set()
+    seen_identities: Set[Tuple[str, str]] = set()
 
     def add(path: Path) -> None:
         if path in seen:
             return
+        identity = _candidate_java_identity(path)
+        if identity[1] and identity in seen_identities:
+            return
         seen.add(path)
+        if identity[1]:
+            seen_identities.add(identity)
         expanded.append(path)
 
     for java_file in java_files:
@@ -1836,6 +2251,16 @@ def _comment_error_lines_in_file(test_file: Path, line_numbers: Sequence[int]) -
     if not lines:
         return False
 
+    def _looks_like_top_level_type_declaration(line: str) -> bool:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            return False
+        return re.match(
+            r"^(?:public\s+|protected\s+|private\s+)?(?:abstract\s+|final\s+|static\s+|sealed\s+|non-sealed\s+)*"
+            r"(?:class|interface|enum|record|@interface)\s+[A-Za-z_][A-Za-z0-9_]*\b",
+            stripped,
+        ) is not None
+
     lines_to_comment: Set[int] = set()
     for line_number in line_numbers:
         idx = line_number - 1
@@ -1863,6 +2288,9 @@ def _comment_error_lines_in_file(test_file: Path, line_numbers: Sequence[int]) -
             next_index += 1
 
     if not lines_to_comment:
+        return False
+
+    if any(_looks_like_top_level_type_declaration(lines[idx]) for idx in lines_to_comment):
         return False
 
     for idx in sorted(lines_to_comment):

@@ -92,15 +92,21 @@ def parse_package_and_class(java_file: Path) -> Tuple[str, str]:
 
     # class name = file basename minus .java is often fine,
     # but prefer an actual class declaration if possible.
-    m2 = re.search(
-        r"^\s*(public\s+)?(final\s+)?(class|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+    declarations = re.findall(
+        r"^\s*(?:public\s+)?(?:final\s+)?(?:abstract\s+)?(?:static\s+)?(?:sealed\s+)?(?:non-sealed\s+)?"
+        r"(class|interface|enum|record|@interface)\s+([A-Za-z_][A-Za-z0-9_]*)\b",
         text,
         flags=re.MULTILINE,
     )
-    if m2:
-        cls = m2.group(4).strip()
-    else:
-        cls = java_file.stem
+    stem = java_file.stem
+    for _kind, declared_name in declarations:
+        if declared_name == stem:
+            cls = declared_name
+            break
+    if not cls and declarations:
+        cls = declarations[0][1].strip()
+    if not cls:
+        cls = stem
 
     return pkg, cls
 

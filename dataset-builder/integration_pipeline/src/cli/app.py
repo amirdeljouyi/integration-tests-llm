@@ -12,10 +12,12 @@ cli = typer.Typer(no_args_is_help=True, add_completion=False)
 
 llm_app = typer.Typer(no_args_is_help=True)
 adopted_app = typer.Typer(no_args_is_help=True)
+repair_app = typer.Typer(no_args_is_help=True)
 coverage_app = typer.Typer(no_args_is_help=True)
 
 cli.add_typer(llm_app, name="llm", help="LLM-related steps")
-cli.add_typer(adopted_app, name="adopted", help="Steps that operate on adopted tests")
+cli.add_typer(adopted_app, name="adopted", help="Deprecated: use top-level commands with `--variants adopted,agentic`")
+cli.add_typer(repair_app, name="repair", help="Repair steps for adopted and agentic tests")
 cli.add_typer(coverage_app, name="coverage", help="Coverage comparison steps")
 
 DEFAULTS = pipeline_defaults()
@@ -34,9 +36,23 @@ def _run(ctx: typer.Context, step: str, **overrides: Any) -> None:
 
 def _run_steps(ctx: typer.Context, steps: Iterable[str], **overrides: Any) -> None:
     base = _base_args(ctx)
-    merged = {**base.__dict__, **overrides}
+    normalized_overrides = dict(overrides)
+    normalized_overrides.pop("variants", None)
+    merged = {**base.__dict__, **normalized_overrides}
     for step in steps:
         rc = run_pipeline(build_pipeline_args(**{**merged, "step": step}))
+        if rc != 0:
+            raise typer.Exit(code=rc)
+    raise typer.Exit(code=0)
+
+
+def _run_step_configs(ctx: typer.Context, step_configs: Iterable[tuple[str, dict[str, Any]]], **overrides: Any) -> None:
+    base = _base_args(ctx)
+    normalized_overrides = dict(overrides)
+    normalized_overrides.pop("variants", None)
+    merged = {**base.__dict__, **normalized_overrides}
+    for step, extra_overrides in step_configs:
+        rc = run_pipeline(build_pipeline_args(**{**merged, **extra_overrides, "step": step}))
         if rc != 0:
             raise typer.Exit(code=rc)
     raise typer.Exit(code=0)
@@ -47,15 +63,15 @@ def _parse_variants(variants: str) -> set[str]:
     if not items:
         return set()
     if "all" in items:
-        return {"auto", "manual", "adopted", "agentic"}
-    allowed = {"auto", "manual", "adopted", "agentic"}
+        return {"auto", "auto-original", "manual", "adopted", "agentic"}
+    allowed = {"auto", "auto-original", "manual", "adopted", "agentic"}
     bad = sorted(items - allowed)
     if bad:
         raise typer.BadParameter(f"Unknown variants: {', '.join(bad)}")
     return items
 
 
-def _steps_for_variants(
+def _step_configs_for_variants(
     *,
     variants: set[str],
     auto_step: str,
@@ -64,30 +80,80 @@ def _steps_for_variants(
     allow_auto: bool,
     allow_adopted: bool,
     allow_agentic: bool,
-) -> list[str]:
-    steps: list[str] = []
-    if ({"auto", "manual"} & variants) and allow_auto:
-        steps.append(auto_step)
+) -> list[tuple[str, dict[str, Any]]]:
+    step_configs: list[tuple[str, dict[str, Any]]] = []
+    if allow_auto:
+        if "auto" in variants:
+            step_configs.append((auto_step, {"auto_variant": "auto"}))
+        if "auto-original" in variants:
+            step_configs.append((auto_step, {"auto_variant": "auto-original"}))
+        if "manual" in variants and not ({"auto", "auto-original"} & variants):
+            step_configs.append((auto_step, {"auto_variant": "auto"}))
     if ({"adopted", "agentic"} & variants) and allow_adopted:
-        steps.append(adopted_step)
+        step_configs.append((adopted_step, {}))
     if "manual" in variants and not allow_manual:
         print("[agt] Warning: manual variant not supported for this command")
     if "auto" in variants and not allow_auto:
         print("[agt] Warning: auto variant not supported for this command")
+    if "auto-original" in variants and not allow_auto:
+        print("[agt] Warning: auto-original variant not supported for this command")
     if "adopted" in variants and not allow_adopted:
         print("[agt] Warning: adopted variant not supported for this command")
     if "agentic" in variants and not allow_agentic:
         print("[agt] Warning: agentic variant not supported for this command")
-    return steps
+    return step_configs
+
+
+def _auto_variant_step_configs(variants: set[str], *, step: str) -> list[tuple[str, dict[str, Any]]]:
+    step_configs: list[tuple[str, dict[str, Any]]] = []
+    if not variants:
+        return [(step, {"auto_variant": "auto"})]
+    if "auto" in variants:
+        step_configs.append((step, {"auto_variant": "auto"}))
+    if "auto-original" in variants:
+        step_configs.append((step, {"auto_variant": "auto-original"}))
+    if not step_configs:
+        print("[agt] Warning: no supported auto variants selected; use `auto` or `auto-original`.")
+    return step_configs
+
+
+def _annotation_step_configs(variants: set[str]) -> list[tuple[str, dict[str, Any]]]:
+    selected = set(variants)
+    selected.discard("manual")
+    auto_variants = [variant for variant in ("auto", "auto-original") if variant in selected]
+    adopted_variants = [variant for variant in ("adopted", "agentic") if variant in selected]
+
+    if not selected:
+        return [("annotation", {"auto_variant": "auto", "annotation_variants": "auto,adopted,agentic"})]
+
+    if not auto_variants:
+        variant_csv = ",".join(adopted_variants)
+        return [("annotation", {"auto_variant": "auto", "annotation_variants": variant_csv})] if variant_csv else []
+
+    step_configs: list[tuple[str, dict[str, Any]]] = []
+    for index, auto_variant in enumerate(auto_variants):
+        enabled = [auto_variant]
+        if index == 0:
+            enabled.extend(adopted_variants)
+        step_configs.append(
+            (
+                "annotation",
+                {
+                    "auto_variant": auto_variant,
+                    "annotation_variants": ",".join(enabled),
+                },
+            )
+        )
+    return step_configs
 
 
 @cli.callback()
 def cli_main(
     ctx: typer.Context,
-    tests_inventory_csv: Annotated[Path, typer.Argument(help="Path to tests inventory CSV")] = Path(
+    tests_inventory_csv: Annotated[Path, typer.Option(help="Path to tests inventory CSV")] = Path(
         str(DEFAULTS["tests_inventory_csv"])
     ),
-    cut_to_fatjar_map_csv: Annotated[Path, typer.Argument(help="Path to CUT->fat-jar map CSV")] = Path(
+    cut_to_fatjar_map_csv: Annotated[Path, typer.Option(help="Path to CUT->fat-jar map CSV")] = Path(
         str(DEFAULTS["cut_to_fatjar_map_csv"])
     ),
     generated_dir: Annotated[Path, typer.Option(help="Generated tests root directory")] = Path(
@@ -149,23 +215,80 @@ def cli_main(
     }
 
 
+@adopted_app.callback()
+def adopted_callback() -> None:
+    print("[agt] Warning: `adopted` commands are deprecated; use top-level commands with `--variants adopted,agentic`.")
+
+
 @cli.command(help="Run all pipeline steps end-to-end")
 def all(ctx: typer.Context) -> None:
     _run(ctx, "all")
 
 
+@cli.command("generate-auto", help="Generate auto tests via ../run-agt and refresh collected-tests")
+def generate_auto(
+    ctx: typer.Context,
+    skip_existing: Annotated[
+        bool,
+        typer.Option("--skip-existing/--no-skip-existing", help="Skip CUTs that already have generated tests"),
+    ] = bool(DEFAULTS["generate_auto_skip_existing"]),
+) -> None:
+    _run(ctx, "generate-auto", generate_auto_skip_existing=skip_existing)
+
+
+@cli.command("sync", help="Sync generated tests from run-agt output into collected-tests")
+def sync(
+    ctx: typer.Context,
+    variants: Annotated[str, typer.Option(help="Comma-separated variants; only auto is supported right now")] = "auto",
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Merge generated tests into an existing collected-tests tree without replacing it"),
+    ] = bool(DEFAULTS["sync_force"]),
+) -> None:
+    selected = _parse_variants(variants)
+    if "manual" in selected:
+        print("[agt] Warning: manual variant not supported for this command")
+    if "adopted" in selected:
+        print("[agt] Warning: adopted variant not supported for this command")
+    if "agentic" in selected:
+        print("[agt] Warning: agentic variant not supported for this command")
+    if {"auto", "auto-original"} & selected:
+        _run(ctx, "sync", sync_variants="auto", sync_force=force)
+        return
+    raise typer.Exit(code=0)
+
+
 @cli.command(help="Compile selected tests and dependencies")
-def compile(ctx: typer.Context) -> None:
-    _run(ctx, "compile")
+def compile(
+    ctx: typer.Context,
+    skip_passed: Annotated[bool, typer.Option(help="Skip targets whose latest compile already passed")] = bool(
+        DEFAULTS["skip_passed"]
+    ),
+    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,auto-original,manual or all")] = "",
+) -> None:
+    if variants:
+        step_configs = _step_configs_for_variants(
+            variants=_parse_variants(variants),
+            auto_step="compile",
+            adopted_step="compile",
+            allow_manual=True,
+            allow_auto=True,
+            allow_adopted=False,
+            allow_agentic=False,
+        )
+        if step_configs:
+            _run_step_configs(ctx, step_configs, skip_passed=skip_passed)
+        raise typer.Exit(code=0)
+    _run(ctx, "compile", skip_passed=skip_passed)
 
 
 @cli.command(help="Run compiled tests and collect coverage")
 def run(
     ctx: typer.Context,
-    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,manual,adopted,agentic or all")] = "",
+    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,auto-original,manual,adopted,agentic or all")] = "",
 ) -> None:
     if variants:
-        steps = _steps_for_variants(
+        step_configs = _step_configs_for_variants(
             variants=_parse_variants(variants),
             auto_step="run",
             adopted_step="adopted-run",
@@ -174,8 +297,8 @@ def run(
             allow_adopted=True,
             allow_agentic=True,
         )
-        if steps:
-            _run_steps(ctx, steps)
+        if step_configs:
+            _run_step_configs(ctx, step_configs)
         raise typer.Exit(code=0)
     _run(ctx, "run")
 
@@ -192,10 +315,30 @@ def filter(
     sut_classes_dir: Annotated[str, typer.Option(help="Directory of SUT .class files (optional)")] = str(
         DEFAULTS["sut_classes_dir"]
     ),
-    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,manual,adopted,agentic or all")] = "",
+    skip_exists: Annotated[bool, typer.Option(help="Skip targets that already have covfilter output")] = bool(
+        DEFAULTS["skip_exists"]
+    ),
+    skip_passed: Annotated[bool, typer.Option(help="Skip targets that already have a passed covfilter output")] = bool(
+        DEFAULTS["skip_passed"]
+    ),
+    skip_passed_by_status: Annotated[
+        bool,
+        typer.Option(help="Skip targets whose latest covfilter summary status is passed"),
+    ] = bool(DEFAULTS["skip_passed_by_status"]),
+    sanitized_es_dir: Annotated[Path, typer.Option(help="Output directory for sanitized EvoSuite variants")] = Path(
+        str(DEFAULTS["sanitized_es_dir"])
+    ),
+    sanitize_compare_out: Annotated[Path, typer.Option(help="Output directory for baseline vs sanitized compare artifacts")] = Path(
+        str(DEFAULTS["sanitize_compare_out"])
+    ),
+    sanitize_compare: Annotated[
+        bool,
+        typer.Option("--sanitize-compare/--no-sanitize-compare", help="Try sanitized EvoSuite tests first and fall back to baseline/original only if needed"),
+    ] = bool(DEFAULTS["sanitize_compare"]),
+    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,auto-original,manual,adopted,agentic or all")] = "",
 ) -> None:
     if variants:
-        steps = _steps_for_variants(
+        step_configs = _step_configs_for_variants(
             variants=_parse_variants(variants),
             auto_step="filter",
             adopted_step="adopted-filter",
@@ -204,14 +347,20 @@ def filter(
             allow_adopted=True,
             allow_agentic=True,
         )
-        if steps:
-            _run_steps(
+        if step_configs:
+            _run_step_configs(
                 ctx,
-                steps,
+                step_configs,
                 do_covfilter=True,
                 covfilter_jar=str(covfilter_jar),
                 covfilter_out=str(covfilter_out),
                 sut_classes_dir=sut_classes_dir,
+                skip_exists=skip_exists,
+                skip_passed=skip_passed,
+                skip_passed_by_status=skip_passed_by_status,
+                sanitized_es_dir=str(sanitized_es_dir),
+                sanitize_compare_out=str(sanitize_compare_out),
+                sanitize_compare=sanitize_compare,
             )
         raise typer.Exit(code=0)
     _run(
@@ -221,6 +370,12 @@ def filter(
         covfilter_jar=str(covfilter_jar),
         covfilter_out=str(covfilter_out),
         sut_classes_dir=sut_classes_dir,
+        skip_exists=skip_exists,
+        skip_passed=skip_passed,
+        skip_passed_by_status=skip_passed_by_status,
+        sanitized_es_dir=str(sanitized_es_dir),
+        sanitize_compare_out=str(sanitize_compare_out),
+        sanitize_compare=sanitize_compare,
     )
 
 
@@ -240,12 +395,12 @@ def reduce(
     covfilter_out: Annotated[Path, typer.Option(help="Covfilter output directory")]= Path(
         str(DEFAULTS["covfilter_out"])
     ),
-    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,manual,adopted,agentic or all")] = "",
+    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,auto-original,manual,adopted,agentic or all")] = "",
 ) -> None:
     if top_n is not None:
         max_tests = top_n
     if variants:
-        steps = _steps_for_variants(
+        step_configs = _step_configs_for_variants(
             variants=_parse_variants(variants),
             auto_step="reduce",
             adopted_step="adopted-reduce",
@@ -254,10 +409,10 @@ def reduce(
             allow_adopted=True,
             allow_agentic=True,
         )
-        if steps:
-            _run_steps(
+        if step_configs:
+            _run_step_configs(
                 ctx,
-                steps,
+                step_configs,
                 reduced_out=str(reduced_out),
                 reduce_max_tests=max_tests,
                 covfilter_jar=str(covfilter_jar),
@@ -313,22 +468,21 @@ def annotation(
         str(DEFAULTS["annotation_out"])
     ),
     variants: Annotated[
-        str, typer.Option(help="Comma-separated variants: auto,adopted,agentic or all")
+        str, typer.Option(help="Comma-separated variants: auto,auto-original,adopted,agentic or all")
     ] = str(DEFAULTS["annotation_variants"]),
 ) -> None:
-    selected = _parse_variants(variants)
-    selected -= {"manual"}
-    variant_csv = ",".join(sorted(selected)) if selected else "auto,adopted,agentic"
-    _run(
-        ctx,
-        "annotation",
-        reduced_out=str(reduced_out),
-        adopted_reduced_out=str(adopted_reduced_out),
-        covfilter_out=str(covfilter_out),
-        adopted_covfilter_out=str(adopted_covfilter_out),
-        annotation_out=str(annotation_out),
-        annotation_variants=variant_csv,
-    )
+    step_configs = _annotation_step_configs(_parse_variants(variants))
+    if step_configs:
+        _run_step_configs(
+            ctx,
+            step_configs,
+            reduced_out=str(reduced_out),
+            adopted_reduced_out=str(adopted_reduced_out),
+            covfilter_out=str(covfilter_out),
+            adopted_covfilter_out=str(adopted_covfilter_out),
+            annotation_out=str(annotation_out),
+        )
+    raise typer.Exit(code=0)
 
 
 @cli.command(help="Run the agent step")
@@ -336,6 +490,9 @@ def agent(
     ctx: typer.Context,
     adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
         str(DEFAULTS["adopted_dir"])
+    ),
+    skip_exists: Annotated[bool, typer.Option(help="Skip targets that already have an agent output")] = bool(
+        DEFAULTS["skip_exists"]
     ),
     agent_model: Annotated[str, typer.Option(help="Model name for agent (optional)")] = str(
         DEFAULTS["agent_model"]
@@ -350,10 +507,32 @@ def agent(
         DEFAULTS["agent_max_prompt_chars"]
     ),
 ) -> None:
+    _run_agent(
+        ctx,
+        adopted_dir=adopted_dir,
+        skip_exists=skip_exists,
+        agent_model=agent_model,
+        max_context_files=max_context_files,
+        max_context_chars=max_context_chars,
+        max_prompt_chars=max_prompt_chars,
+    )
+
+
+def _run_agent(
+    ctx: typer.Context,
+    *,
+    adopted_dir: Path,
+    skip_exists: bool,
+    agent_model: str,
+    max_context_files: int,
+    max_context_chars: int,
+    max_prompt_chars: int,
+) -> None:
     _run(
         ctx,
         "agent",
         adopted_dir=str(adopted_dir),
+        skip_exists=skip_exists,
         agent_model=agent_model,
         agent_max_context_files=max_context_files,
         agent_max_context_chars=max_context_chars,
@@ -373,14 +552,18 @@ def compare(
     min_tokens: Annotated[int, typer.Option("--min-tokens", min=0, help="Minimum token threshold")] = int(
         DEFAULTS["compare_min_tokens"]
     ),
+    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,auto-original or all")] = "",
 ) -> None:
-    _run(
-        ctx,
-        "compare",
-        compare_root=str(compare_root),
-        compare_out=str(compare_out),
-        compare_min_tokens=min_tokens,
-    )
+    step_configs = _auto_variant_step_configs(_parse_variants(variants) if variants else set(), step="compare")
+    if step_configs:
+        _run_step_configs(
+            ctx,
+            step_configs,
+            compare_root=str(compare_root),
+            compare_out=str(compare_out),
+            compare_min_tokens=min_tokens,
+        )
+    raise typer.Exit(code=0)
 
 
 @cli.command(name="pull-request-maker", help="Generate pull request artifacts")
@@ -421,8 +604,11 @@ def llm_improve(
     adopted_dir: Annotated[Path, typer.Option(help="Directory to write improved outputs")] = Path(
         str(DEFAULTS["adopted_dir"])
     ),
+    skip_exists: Annotated[bool, typer.Option(help="Skip targets that already have an improved output")] = bool(
+        DEFAULTS["skip_exists"]
+    ),
 ) -> None:
-    _run(ctx, "llm-agt-improvement", adopted_dir=str(adopted_dir))
+    _run(ctx, "llm-agt-improvement", adopted_dir=str(adopted_dir), skip_exists=skip_exists)
 
 
 @llm_app.command("integrate", help="Integrate AGT with manual tests using LLM")
@@ -431,8 +617,11 @@ def llm_integrate(
     adopted_dir: Annotated[Path, typer.Option(help="Directory to write integrated outputs")] = Path(
         str(DEFAULTS["adopted_dir"])
     ),
+    skip_exists: Annotated[bool, typer.Option(help="Skip targets that already have an integrated output")] = bool(
+        DEFAULTS["skip_exists"]
+    ),
 ) -> None:
-    _run(ctx, "llm-integration", adopted_dir=str(adopted_dir))
+    _run(ctx, "llm-integration", adopted_dir=str(adopted_dir), skip_exists=skip_exists)
 
 
 @llm_app.command("integrate-sbs", help="Integration step-by-step")
@@ -441,12 +630,48 @@ def llm_integrate_step_by_step(
     adopted_dir: Annotated[Path, typer.Option(help="Directory to write integrated outputs")] = Path(
         str(DEFAULTS["adopted_dir"])
     ),
+    skip_exists: Annotated[bool, typer.Option(help="Skip targets that already have a step-by-step output")] = bool(
+        DEFAULTS["skip_exists"]
+    ),
 ) -> None:
-    _run(ctx, "llm-integration-step-by-step", adopted_dir=str(adopted_dir))
+    _run(ctx, "llm-integration-step-by-step", adopted_dir=str(adopted_dir), skip_exists=skip_exists)
 
 
-@adopted_app.command("fix", help="Deprecated: use `adopted fix --variants adopted,agentic`")
-def adopted_fix(
+@llm_app.command("agent", help="Integrate AGT with manual tests using the agent")
+def llm_agent(
+    ctx: typer.Context,
+    adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
+        str(DEFAULTS["adopted_dir"])
+    ),
+    skip_exists: Annotated[bool, typer.Option(help="Skip targets that already have an agent output")] = bool(
+        DEFAULTS["skip_exists"]
+    ),
+    agent_model: Annotated[str, typer.Option(help="Model name for agent (optional)")] = str(
+        DEFAULTS["agent_model"]
+    ),
+    max_context_files: Annotated[int, typer.Option(help="Max context files for agent")] = int(
+        DEFAULTS["agent_max_context_files"]
+    ),
+    max_context_chars: Annotated[int, typer.Option(help="Max context characters for agent")] = int(
+        DEFAULTS["agent_max_context_chars"]
+    ),
+    max_prompt_chars: Annotated[int, typer.Option(help="Max prompt characters for agent")] = int(
+        DEFAULTS["agent_max_prompt_chars"]
+    ),
+) -> None:
+    _run_agent(
+        ctx,
+        adopted_dir=adopted_dir,
+        skip_exists=skip_exists,
+        agent_model=agent_model,
+        max_context_files=max_context_files,
+        max_context_chars=max_context_chars,
+        max_prompt_chars=max_prompt_chars,
+    )
+
+
+@repair_app.command("fix", help="Normalize adopted and agentic tests")
+def repair_fix(
     ctx: typer.Context,
     adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
         str(DEFAULTS["adopted_dir"])
@@ -455,14 +680,24 @@ def adopted_fix(
     _run_steps(ctx, ["adopted-fix"], adopted_dir=str(adopted_dir))
 
 
-@adopted_app.command("comment", help="Deprecated: use `adopted comment --variants adopted,agentic`")
-def adopted_comment(
+@repair_app.command("comment", help="Comment compile-error lines in adopted and agentic tests")
+def repair_comment(
     ctx: typer.Context,
     adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
         str(DEFAULTS["adopted_dir"])
     ),
 ) -> None:
     _run_steps(ctx, ["adopted-comment"], adopted_dir=str(adopted_dir))
+
+
+@repair_app.command("sanitize-es", help="Materialize sanitized EvoSuite tests as *_Sanitized_ESTest")
+def repair_sanitize(
+    ctx: typer.Context,
+    sanitized_es_dir: Annotated[Path, typer.Option(help="Directory to write sanitized EvoSuite tests")] = Path(
+        str(DEFAULTS["sanitized_es_dir"])
+    ),
+) -> None:
+    _run_steps(ctx, ["sanitize-es"], sanitized_es_dir=str(sanitized_es_dir))
 
 
 @adopted_app.command("filter", help="Deprecated: use `filter --variants adopted,agentic`")
@@ -480,20 +715,23 @@ def adopted_filter(
     sut_classes_dir: Annotated[str, typer.Option(help="Directory of SUT .class files (optional)")] = str(
         DEFAULTS["sut_classes_dir"]
     ),
+    skip_exists: Annotated[bool, typer.Option(help="Skip targets that already have covfilter output")] = bool(
+        DEFAULTS["skip_exists"]
+    ),
 ) -> None:
     _run_steps(
         ctx,
-        ["filter"],
-        variants="adopted,agentic",
+        ["adopted-filter"],
         adopted_dir=str(adopted_dir),
         adopted_covfilter_out=str(adopted_covfilter_out),
         covfilter_jar=str(covfilter_jar),
         sut_classes_dir=sut_classes_dir,
         do_covfilter=True,
+        skip_exists=skip_exists,
     )
 
 
-@adopted_app.command("reduce", help="Reduce adopted tests")
+@adopted_app.command("reduce", help="Deprecated: use `reduce --variants adopted,agentic --max-tests 5`")
 def adopted_reduce(
     ctx: typer.Context,
     adopted_dir: Annotated[Path, typer.Option(help="Directory containing adopted tests")] = Path(
@@ -517,8 +755,7 @@ def adopted_reduce(
         max_tests = top_n
     _run_steps(
         ctx,
-        ["reduce"],
-        variants="adopted,agentic",
+        ["adopted-reduce"],
         adopted_dir=str(adopted_dir),
         adopted_reduced_out=str(adopted_reduced_out),
         adopted_covfilter_out=str(adopted_covfilter_out),
@@ -534,12 +771,18 @@ def adopted_run(
         str(DEFAULTS["adopted_dir"])
     ),
 ) -> None:
-    _run_steps(ctx, ["run"], variants="adopted,agentic", adopted_dir=str(adopted_dir))
+    _run_steps(ctx, ["adopted-run"], adopted_dir=str(adopted_dir))
 
 
 @coverage_app.command("compare", help="Coverage comparison (manual/auto/adopted)")
-def coverage_compare(ctx: typer.Context) -> None:
-    _run(ctx, "coverage-comparison")
+def coverage_compare(
+    ctx: typer.Context,
+    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,auto-original or all")] = "",
+) -> None:
+    step_configs = _auto_variant_step_configs(_parse_variants(variants) if variants else set(), step="coverage-comparison")
+    if step_configs:
+        _run_step_configs(ctx, step_configs)
+    raise typer.Exit(code=0)
 
 
 @coverage_app.command("compare-reduced", help="Coverage comparison for reduced sets")
@@ -554,14 +797,21 @@ def coverage_compare_reduced(
     adopted_reduced_out: Annotated[Path, typer.Option(help="Reduced adopted tests output directory")]= Path(
         str(DEFAULTS["adopted_reduced_out"])
     ),
+    variants: Annotated[str, typer.Option(help="Comma-separated variants: auto,auto-original or all")] = "",
 ) -> None:
-    _run(
-        ctx,
-        "coverage-comparison-reduced",
-        coverage_compare_top_n=top_n,
-        reduced_out=str(reduced_out),
-        adopted_reduced_out=str(adopted_reduced_out),
+    step_configs = _auto_variant_step_configs(
+        _parse_variants(variants) if variants else set(),
+        step="coverage-comparison-reduced",
     )
+    if step_configs:
+        _run_step_configs(
+            ctx,
+            step_configs,
+            coverage_compare_top_n=top_n,
+            reduced_out=str(reduced_out),
+            adopted_reduced_out=str(adopted_reduced_out),
+        )
+    raise typer.Exit(code=0)
 
 
 if __name__ == "__main__":
