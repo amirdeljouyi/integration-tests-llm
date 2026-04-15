@@ -13,6 +13,7 @@ export JDK_JAVA_OPTIONS="-Djdk.attach.allowAttachSelf=true"
 # Behavior:
 # - First run with fatjar only
 # - If error log shows ClassNotFound/ClassNotFoundException -> compute runtime CP and retry
+# - Optional: filter to classes without existing generated tests in tests inventory CSV
 
 CSV_PATH="${1:-}"
 ATTEMPT="${2:-}"
@@ -23,11 +24,15 @@ if [[ -z "${CSV_PATH}" || ! -f "${CSV_PATH}" ]]; then
   exit 1
 fi
 
-: "${REPOS_DIR:=./repos}"   # override like: REPOS_DIR=/Users/.../dataset-builder/repos ./run...
+: "${REPOS_DIR:=../repos}"   # override like: REPOS_DIR=/Users/.../dataset-builder/repos ./run...
 : "${OUTPUT_DIR:=./result}"
+: "${ONLY_MISSING_GENERATED:=1}"   # 1 => run only rows with no generated tests
+: "${ONLY_MISSING_SCOPE:=class}"   # class => skip only exact (repo,fqcn), repo => skip whole repo if any generated exists
+: "${TESTS_INVENTORY_CSV:=../collected-tests/_logs/tests_inventory.csv}"
 
 LOG_DIR="${OUTPUT_DIR}/log"
 mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}/evosuite-report" "${OUTPUT_DIR}/generated-tests"
+FAILURE_SUMMARY_CSV="${LOG_DIR}/generate-auto.failures.csv"
 
 # Attempt naming (same as your old behavior)
 if [[ -z "${ATTEMPT}" ]]; then
@@ -46,8 +51,9 @@ GLOBAL_OUT="${LOG_DIR}/global_output.log"
 GLOBAL_ERR="${LOG_DIR}/global_error.log"
 : > "${GLOBAL_OUT}"
 : > "${GLOBAL_ERR}"
+printf '%s\n' 'repo,fqcn,build_tool,module_rel,class_path,fatjar_path,stage,outcome_reason,failure_category,failure_detail,stat_log,error_log,retry_stat_log,retry_error_log' > "${FAILURE_SUMMARY_CSV}"
 
-safe_name() { echo "$1" | sed 's#[^A-Za-z0-9._/-]#_#g'; }
+safe_name() { echo "$1" | sed 's#/#_#g; s#[^A-Za-z0-9._-]#_#g'; }
 safe_id() { echo "$1" | sed 's#[^A-Za-z0-9._-]#_#g'; }
 
 is_bad_fatjar() {
@@ -58,9 +64,175 @@ is_bad_fatjar() {
   return 1
 }
 
+log_matches() {
+  local pattern="$1"
+  shift
+  local file
+  for file in "$@"; do
+    [[ -f "$file" ]] || continue
+    if grep -qE "$pattern" "$file"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 needs_cp_retry() {
-  local errlog="$1"
-  grep -qE "ClassNotFoundException|Class not found:" "$errlog"
+  local statlog="$1"
+  local errlog="$2"
+  log_matches "Unknown class:|ClassNotFoundException|Class not found:|NoClassDefFoundError|should be in target project, but could not be found" "$statlog" "$errlog"
+}
+
+has_generation_failure() {
+  local statlog="$1"
+  local errlog="$2"
+  log_matches "Fatal crash on main EvoSuite process|The JVM of the client process crashed|Lost connection with clients|failed to generate any test case|Error when generating tests for:|Compilation failed on compilation units|failed to write statistics data|Not going to write down statistics data, as some are missing" "$statlog" "$errlog"
+}
+
+generated_test_file() {
+  local fqcn="$1"
+  local rel_path="${fqcn//./\/}"
+  printf '%s/generated-tests%s/%s%s.java\n' "${OUTPUT_DIR}" "${POSTFIX}" "${rel_path}" "${JUNIT_SUFFIX}"
+}
+
+has_generated_test_output() {
+  local fqcn="$1"
+  local test_file
+  test_file="$(generated_test_file "$fqcn")"
+  [[ -f "$test_file" ]]
+}
+
+csv_escape() {
+  local value="${1:-}"
+  value="${value//$'\r'/ }"
+  value="${value//$'\n'/ }"
+  value="${value//\"/\"\"}"
+  printf '"%s"' "$value"
+}
+
+first_failure_detail() {
+  local file
+  local detail=""
+  for file in "$@"; do
+    [[ -f "$file" ]] || continue
+    detail="$(grep -hEm1 "Unknown class:|No statistics has been saved because EvoSuite failed to generate any test case|Fatal crash on main EvoSuite process|Compilation failed on compilation units|ClassNotFoundException|NoClassDefFoundError|MarshalException|ServerException|OutOfMemoryError|Error when generating tests for:|Caused by:" "$file" || true)"
+    if [[ -n "$detail" ]]; then
+      printf '%s\n' "$detail"
+      return 0
+    fi
+  done
+  return 0
+}
+
+classify_failure() {
+  if log_matches "Unknown class:" "$@"; then
+    echo "unknown_class_in_projectcp"
+  elif log_matches "No statistics has been saved because EvoSuite failed to generate any test case|failed to generate any test case" "$@"; then
+    echo "no_test_case_generated"
+  elif log_matches "Fatal crash on main EvoSuite process" "$@"; then
+    echo "evosuite_fatal_crash"
+  elif log_matches "Compilation failed on compilation units" "$@"; then
+    echo "generated_test_compile_failure"
+  elif log_matches "ClassNotFoundException|NoClassDefFoundError|should be in target project, but could not be found|cannot find symbol" "$@"; then
+    echo "missing_class_or_dep"
+  elif log_matches "OutOfMemoryError" "$@"; then
+    echo "oom"
+  else
+    echo "other"
+  fi
+}
+
+append_failure_summary() {
+  local repo="$1"
+  local fqcn="$2"
+  local build_tool="$3"
+  local module_rel="$4"
+  local class_path="$5"
+  local fatjar="$6"
+  local stage="$7"
+  local outcome_reason="$8"
+  local stat_log="$9"
+  local err_log="${10}"
+  local retry_stat_log="${11}"
+  local retry_err_log="${12}"
+  local failure_category
+  local failure_detail
+  failure_category="$(classify_failure "$retry_stat_log" "$retry_err_log" "$stat_log" "$err_log")"
+  failure_detail="$(first_failure_detail "$retry_stat_log" "$retry_err_log" "$stat_log" "$err_log")"
+  {
+    csv_escape "$repo"; printf ','
+    csv_escape "$fqcn"; printf ','
+    csv_escape "$build_tool"; printf ','
+    csv_escape "$module_rel"; printf ','
+    csv_escape "$class_path"; printf ','
+    csv_escape "$fatjar"; printf ','
+    csv_escape "$stage"; printf ','
+    csv_escape "$outcome_reason"; printf ','
+    csv_escape "$failure_category"; printf ','
+    csv_escape "$failure_detail"; printf ','
+    csv_escape "$stat_log"; printf ','
+    csv_escape "$err_log"; printf ','
+    csv_escape "$retry_stat_log"; printf ','
+    csv_escape "$retry_err_log"; printf '\n'
+  } >> "${FAILURE_SUMMARY_CSV}"
+}
+
+source_module_rel_from_class_path() {
+  local class_path="$1"
+  local rel=""
+  if [[ "$class_path" == *"/src/main/java/"* ]]; then
+    rel="${class_path%%/src/main/java/*}"
+  elif [[ "$class_path" == *"/src/main/kotlin/"* ]]; then
+    rel="${class_path%%/src/main/kotlin/*}"
+  elif [[ "$class_path" == *"/src/test/java/"* ]]; then
+    rel="${class_path%%/src/test/java/*}"
+  elif [[ "$class_path" == *"/src/test/kotlin/"* ]]; then
+    rel="${class_path%%/src/test/kotlin/*}"
+  else
+    return 1
+  fi
+  if [[ -z "$rel" ]]; then
+    echo "."
+  else
+    echo "$rel"
+  fi
+}
+
+source_module_dir_from_class_path() {
+  local repo_dir="$1"
+  local class_path="$2"
+  local rel
+  rel="$(source_module_rel_from_class_path "$class_path" 2>/dev/null || true)"
+  if [[ -z "$rel" || "$rel" == "." ]]; then
+    echo "$repo_dir"
+  else
+    echo "$repo_dir/$rel"
+  fi
+}
+
+jar_files_cp_from_dir() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 0
+  find "$dir" -maxdepth 1 -type f -name '*.jar' -print 2>/dev/null | paste -sd: -
+}
+
+repo_out_jars_cp() {
+  local repo="$1"
+  local fatjar="$2"
+  local safe_repo
+  local dir
+  local repo_out_root=""
+  safe_repo="$(safe_name "$repo")"
+  dir="$(dirname "$fatjar")"
+  while [[ -n "$dir" && "$dir" != "/" && "$dir" != "." ]]; do
+    if [[ "$(basename "$dir")" == "$safe_repo" ]]; then
+      repo_out_root="$dir"
+      break
+    fi
+    dir="$(dirname "$dir")"
+  done
+  [[ -n "$repo_out_root" ]] || return 0
+  find "$repo_out_root" -type f -name '*.jar' -print 2>/dev/null | paste -sd: -
 }
 
 # ---- Maven runtime CP (module-aware) ----
@@ -160,20 +332,88 @@ GR
 # ---- Main CSV reading using Python csv module ----
 PY_TSV=$(
 python3 - <<'PY' "$CSV_PATH"
-import csv, sys
+import csv, os, sys
+
 path = sys.argv[1]
+only_missing = os.environ.get("ONLY_MISSING_GENERATED", "0").strip() in {"1", "true", "TRUE", "yes", "YES"}
+only_missing_scope = os.environ.get("ONLY_MISSING_SCOPE", "class").strip().lower()
+if only_missing_scope not in {"class", "repo"}:
+    only_missing_scope = "class"
+inventory_csv = os.environ.get("TESTS_INVENTORY_CSV", "../collected-tests/_logs/tests_inventory.csv").strip()
+
+has_generated = set()
+repos_with_generated = set()
+inv_rows = 0
+if only_missing and inventory_csv and os.path.isfile(inventory_csv):
+    with open(inventory_csv, newline="", encoding="utf-8") as f_inv:
+        for row in csv.DictReader(f_inv):
+            inv_rows += 1
+            repo = (row.get("repo") or "").strip().strip('"')
+            fqcn = (row.get("fqcn") or "").strip().strip('"')
+            if not repo or not fqcn:
+                continue
+            generated_files = (row.get("generated_files") or "").strip().strip('"')
+            generated_count_raw = (row.get("generated_count") or "").strip().strip('"')
+            try:
+                generated_count = int(generated_count_raw or "0")
+            except ValueError:
+                generated_count = 0
+            if generated_count > 0 or (generated_files and generated_files.lower() != "null"):
+                has_generated.add((repo, fqcn))
+                repos_with_generated.add(repo)
+
+total_rows = 0
+selected_rows = 0
+skipped_by_class = 0
+skipped_by_repo = 0
+skipped_empty_fqcn = 0
 with open(path, newline="", encoding="utf-8") as f:
     r = csv.DictReader(f)
     for row in r:
+        total_rows += 1
         repo = (row.get("repo") or "").strip()
         fqcn = (row.get("fqcn") or "").strip()
+        if not fqcn:
+            skipped_empty_fqcn += 1
+            print(f"[DECIDE] SKIP repo={repo} fqcn={fqcn} reason=empty_fqcn", file=sys.stderr)
+            continue
+        if only_missing and only_missing_scope == "class" and (repo, fqcn) in has_generated:
+            skipped_by_class += 1
+            print(f"[DECIDE] SKIP repo={repo} fqcn={fqcn} reason=generated_pair", file=sys.stderr)
+            continue
+        if only_missing and only_missing_scope == "repo" and repo in repos_with_generated:
+            skipped_by_repo += 1
+            print(f"[DECIDE] SKIP repo={repo} fqcn={fqcn} reason=generated_repo", file=sys.stderr)
+            continue
+        selected_rows += 1
+        if only_missing:
+            print(f"[DECIDE] KEEP repo={repo} fqcn={fqcn} reason=missing_generated", file=sys.stderr)
         fatjar = (row.get("fatjar_path") or "").strip()
         class_path = (row.get("class_path") or "").strip()
         build_tool = (row.get("build_tool") or "").strip()
         module_rel = (row.get("module_rel") or "").strip()
         print("\t".join([repo, fqcn, fatjar, class_path, build_tool, module_rel]))
+
+if only_missing:
+    print(f"[INFO] only_missing=1 scope={only_missing_scope}", file=sys.stderr)
+    if inventory_csv and os.path.isfile(inventory_csv):
+        print(f"[INFO] inventory loaded: {inventory_csv}", file=sys.stderr)
+        print(f"[INFO] inventory rows={inv_rows} generated_pairs={len(has_generated)} generated_repos={len(repos_with_generated)}", file=sys.stderr)
+    else:
+        print(f"[WARN] inventory missing: {inventory_csv}", file=sys.stderr)
+    print(f"[INFO] input rows={total_rows} selected={selected_rows} skipped_empty_fqcn={skipped_empty_fqcn} skipped_by_class={skipped_by_class} skipped_by_repo={skipped_by_repo}", file=sys.stderr)
 PY
 )
+
+if [[ "${ONLY_MISSING_GENERATED}" == "1" ]]; then
+  if [[ -f "${TESTS_INVENTORY_CSV}" ]]; then
+    echo "[INFO] Filtering to classes without generated tests using: ${TESTS_INVENTORY_CSV}"
+    echo "[INFO] Missing-filter scope: ${ONLY_MISSING_SCOPE}"
+  else
+    echo "[WARN] ONLY_MISSING_GENERATED=1 but tests inventory not found: ${TESTS_INVENTORY_CSV}"
+    echo "       Proceeding without inventory-based filtering."
+  fi
+fi
 
 run_evosuite_once() {
   local projectcp="$1"
@@ -219,16 +459,22 @@ run_evosuite_once() {
     > "$stat_log" 2> "$err_log"
 }
 
+success_count=0
+failure_count=0
+skipped_count=0
+
 {
   while IFS=$'\t' read -r repo fqcn fatjar class_path build_tool module_rel; do
     [[ -z "$repo" || -z "$fqcn" ]] && continue
 
     if is_bad_fatjar "$fatjar"; then
       echo "[SKIP] ${repo} fqcn=${fqcn} fatjar_path='${fatjar}'"
+      skipped_count=$((skipped_count+1))
       continue
     fi
     if [[ ! -f "$fatjar" ]]; then
       echo "[SKIP] ${repo} fqcn=${fqcn} fatjar missing on disk: ${fatjar}"
+      skipped_count=$((skipped_count+1))
       continue
     fi
 
@@ -253,25 +499,50 @@ run_evosuite_once() {
 
     # 1) fatjar-only
     echo "[RUN] fatjar-only"
-    if run_evosuite_once "$fatjar" "$fqcn" "$STAT_LOG" "$ERR_LOG"; then
+    run_rc=0
+    if ! run_evosuite_once "$fatjar" "$fqcn" "$STAT_LOG" "$ERR_LOG"; then
+      run_rc=$?
+    fi
+
+    if [[ "$run_rc" -eq 0 ]] && ! needs_cp_retry "$STAT_LOG" "$ERR_LOG" && ! has_generation_failure "$STAT_LOG" "$ERR_LOG"; then
+      if ! has_generated_test_output "$fqcn"; then
+        echo "[FAIL] EvoSuite reported success but wrote no generated test file"
+        append_failure_summary "$repo" "$fqcn" "$build_tool" "$module_rel" "$class_path" "$fatjar" \
+          "fatjar-only" "missing_generated_test_output" "$STAT_LOG" "$ERR_LOG" "" ""
+        failure_count=$((failure_count+1))
+        continue
+      fi
       echo "[OK] fatjar-only"
+      success_count=$((success_count+1))
       continue
     fi
 
-    # If it failed, see if it looks like missing deps
-    if ! needs_cp_retry "$ERR_LOG"; then
+    # If it failed (or "succeeded" with missing-class diagnostics), see if it looks like missing deps
+    if ! needs_cp_retry "$STAT_LOG" "$ERR_LOG"; then
       echo "[FAIL] Not a ClassNotFound-style failure (see $ERR_LOG)"
+      append_failure_summary "$repo" "$fqcn" "$build_tool" "$module_rel" "$class_path" "$fatjar" \
+        "fatjar-only" "not_classnotfound_style_failure" "$STAT_LOG" "$ERR_LOG" "" ""
+      failure_count=$((failure_count+1))
       continue
     fi
 
     echo "[RETRY] Detected missing class; generating runtime classpath..."
 
     extra_cp=""
+    source_module_rel="$(source_module_rel_from_class_path "$class_path" 2>/dev/null || true)"
     if [[ -d "$repo_dir" ]]; then
       if [[ "$build_tool" == "maven" ]]; then
         extra_cp="$(maven_runtime_cp "$repo_dir" "$module_rel")"
+        if [[ -n "$source_module_rel" && "$source_module_rel" != "$module_rel" ]]; then
+          source_cp="$(maven_runtime_cp "$repo_dir" "$source_module_rel")"
+          [[ -n "$source_cp" ]] && extra_cp="${extra_cp:+${extra_cp}:}${source_cp}"
+        fi
       elif [[ "$build_tool" == "gradle" ]]; then
         extra_cp="$(gradle_runtime_cp "$repo_dir" "$module_rel")"
+        if [[ -n "$source_module_rel" && "$source_module_rel" != "$module_rel" ]]; then
+          source_cp="$(gradle_runtime_cp "$repo_dir" "$source_module_rel")"
+          [[ -n "$source_cp" ]] && extra_cp="${extra_cp:+${extra_cp}:}${source_cp}"
+        fi
       fi
     fi
 
@@ -282,8 +553,30 @@ run_evosuite_once() {
     fi
     extra_dirs=""
     [[ -d "$module_dir/target/classes" ]] && extra_dirs="${extra_dirs}:$module_dir/target/classes"
+    [[ -d "$module_dir/target/test-classes" ]] && extra_dirs="${extra_dirs}:$module_dir/target/test-classes"
     [[ -d "$module_dir/build/classes/java/main" ]] && extra_dirs="${extra_dirs}:$module_dir/build/classes/java/main"
+    [[ -d "$module_dir/build/classes/kotlin/main" ]] && extra_dirs="${extra_dirs}:$module_dir/build/classes/kotlin/main"
     [[ -d "$module_dir/build/resources/main" ]] && extra_dirs="${extra_dirs}:$module_dir/build/resources/main"
+    module_jars="$(jar_files_cp_from_dir "$module_dir/target")"
+    [[ -n "$module_jars" ]] && extra_cp="${extra_cp:+${extra_cp}:}${module_jars}"
+    module_jars="$(jar_files_cp_from_dir "$module_dir/build/libs")"
+    [[ -n "$module_jars" ]] && extra_cp="${extra_cp:+${extra_cp}:}${module_jars}"
+
+    source_module_dir="$(source_module_dir_from_class_path "$repo_dir" "$class_path" 2>/dev/null || true)"
+    if [[ -n "$source_module_dir" && "$source_module_dir" != "$module_dir" ]]; then
+      [[ -d "$source_module_dir/target/classes" ]] && extra_dirs="${extra_dirs}:$source_module_dir/target/classes"
+      [[ -d "$source_module_dir/target/test-classes" ]] && extra_dirs="${extra_dirs}:$source_module_dir/target/test-classes"
+      [[ -d "$source_module_dir/build/classes/java/main" ]] && extra_dirs="${extra_dirs}:$source_module_dir/build/classes/java/main"
+      [[ -d "$source_module_dir/build/classes/kotlin/main" ]] && extra_dirs="${extra_dirs}:$source_module_dir/build/classes/kotlin/main"
+      [[ -d "$source_module_dir/build/resources/main" ]] && extra_dirs="${extra_dirs}:$source_module_dir/build/resources/main"
+      source_jars="$(jar_files_cp_from_dir "$source_module_dir/target")"
+      [[ -n "$source_jars" ]] && extra_cp="${extra_cp:+${extra_cp}:}${source_jars}"
+      source_jars="$(jar_files_cp_from_dir "$source_module_dir/build/libs")"
+      [[ -n "$source_jars" ]] && extra_cp="${extra_cp:+${extra_cp}:}${source_jars}"
+    fi
+
+    repo_out_cp="$(repo_out_jars_cp "$repo" "$fatjar")"
+    [[ -n "$repo_out_cp" ]] && extra_cp="${extra_cp:+${extra_cp}:}${repo_out_cp}"
 
     retry_cp="$fatjar"
     [[ -n "$extra_cp" ]] && retry_cp="${retry_cp}:$extra_cp"
@@ -296,9 +589,27 @@ run_evosuite_once() {
     echo "      (writing retry logs: $RETRY_STAT / $RETRY_ERR)"
     run_evosuite_once "$retry_cp" "$fqcn" "$RETRY_STAT" "$RETRY_ERR" || {
       echo "[FAIL] retry also failed (see $RETRY_ERR)"
+      append_failure_summary "$repo" "$fqcn" "$build_tool" "$module_rel" "$class_path" "$fatjar" \
+        "retry" "retry_also_failed" "$STAT_LOG" "$ERR_LOG" "$RETRY_STAT" "$RETRY_ERR"
+      failure_count=$((failure_count+1))
       continue
     }
+    if needs_cp_retry "$RETRY_STAT" "$RETRY_ERR" || has_generation_failure "$RETRY_STAT" "$RETRY_ERR"; then
+      echo "[FAIL] retry produced no test cases (see $RETRY_ERR)"
+      append_failure_summary "$repo" "$fqcn" "$build_tool" "$module_rel" "$class_path" "$fatjar" \
+        "retry" "retry_produced_no_test_cases" "$STAT_LOG" "$ERR_LOG" "$RETRY_STAT" "$RETRY_ERR"
+      failure_count=$((failure_count+1))
+      continue
+    fi
+    if ! has_generated_test_output "$fqcn"; then
+      echo "[FAIL] retry reported success but wrote no generated test file"
+      append_failure_summary "$repo" "$fqcn" "$build_tool" "$module_rel" "$class_path" "$fatjar" \
+        "retry" "missing_generated_test_output" "$STAT_LOG" "$ERR_LOG" "$RETRY_STAT" "$RETRY_ERR"
+      failure_count=$((failure_count+1))
+      continue
+    fi
     echo "[OK] retry succeeded"
+    success_count=$((success_count+1))
 
   done <<< "${PY_TSV}"
 } >> "${GLOBAL_OUT}" 2>> "${GLOBAL_ERR}"
@@ -307,4 +618,12 @@ echo
 echo "DONE"
 echo "Global out: ${GLOBAL_OUT}"
 echo "Global err: ${GLOBAL_ERR}"
+echo "Failure summary: ${FAILURE_SUMMARY_CSV}"
 echo "Per-class logs: ${LOG_DIR}/*-${PREFIX}-*.log"
+echo "Successes: ${success_count}"
+echo "Failures: ${failure_count}"
+echo "Skips: ${skipped_count}"
+
+if [[ "${success_count}" -eq 0 && "${failure_count}" -gt 0 ]]; then
+  exit 1
+fi
