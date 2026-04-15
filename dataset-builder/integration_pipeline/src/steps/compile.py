@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 import shutil
 from pathlib import Path
 from typing import List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
@@ -21,6 +22,7 @@ from ..core.java import (
     prefer_repo_manual_sources,
     read_compile_log,
     remove_unused_imports,
+    resolve_external_runtime_classpath_from_output,
 )
 from .base import Step
 
@@ -114,6 +116,74 @@ def _append_compile_summary_rows(summary_csv: Path, rows: Sequence[dict[str, str
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writerows(rows)
 
+
+def _latest_selected_compile_status(summary_csv: Path, *, repo: str, fqcn: str) -> str:
+    if not summary_csv.exists():
+        return ""
+
+    latest_status = ""
+    with summary_csv.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if (row.get("repo", "") or "").strip() != repo:
+                continue
+            if (row.get("fqcn", "") or "").strip() != fqcn:
+                continue
+            if (row.get("selected", "") or "").strip().lower() != "true":
+                continue
+            latest_status = (row.get("status", "") or "").strip()
+    return latest_status
+
+
+def _effective_libs_cp_for_sources(*, libs_glob_cp: str, java_files: Sequence[Path]) -> str:
+    for java_file in java_files:
+        try:
+            text = java_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if "org.evosuite.runtime" not in text:
+            continue
+        framework_cp = resolve_external_runtime_classpath_from_output(
+            "\n".join(
+                [
+                    "ClassNotFoundException: org/evosuite/runtime/EvoRunner",
+                    "ClassNotFoundException: org/evosuite/runtime/ViolatedAssumptionAnswer",
+                    "ClassNotFoundException: org/evosuite/runtime/annotation/EvoSuiteClassExclude",
+                    "ClassNotFoundException: org/evosuite/runtime/vnet/NonFunctionalRequirementRule",
+                    "ClassNotFoundException: org/objectweb/asm/ClassVisitor",
+                    "ClassNotFoundException: org/objectweb/asm/commons/Method",
+                    "ClassNotFoundException: org/objectweb/asm/tree/ClassNode",
+                    "ClassNotFoundException: org/objectweb/asm/tree/analysis/Analyzer",
+                    "ClassNotFoundException: org/objectweb/asm/util/Printer",
+                    "ClassNotFoundException: org/slf4j/LoggerFactory",
+                ]
+            )
+        )
+        if framework_cp:
+            return ":".join(part for part in (libs_glob_cp, framework_cp) if part)
+        break
+    return libs_glob_cp
+
+
+def _normalize_evosuite_mock_answers(path: Path) -> bool:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    if "org.mockito.Mockito" in text and "org.evosuite.shaded.org.mockito.Mockito" not in text:
+        return False
+
+    updated = re.sub(
+        r"(?<!\(org\.evosuite\.shaded\.org\.mockito\.stubbing\.Answer\) )new ViolatedAssumptionAnswer\(\)",
+        "(org.evosuite.shaded.org.mockito.stubbing.Answer) new ViolatedAssumptionAnswer()",
+        text,
+    )
+    if updated == text:
+        return False
+
+    path.write_text(updated, encoding="utf-8")
+    return True
+
 def _attempt_source_remediation(
     *,
     java_files: Sequence[Path],
@@ -132,6 +202,7 @@ def _attempt_source_remediation(
 
     compile_output = read_compile_log(log_file)
     for candidate in candidates:
+        _normalize_evosuite_mock_answers(candidate)
         remove_unused_imports(str(candidate), False)
         add_throws_exception_to_tests(str(candidate), False)
         add_throws_exception_to_error_methods(str(candidate), compile_output, False)
@@ -140,10 +211,11 @@ def _attempt_source_remediation(
         shutil.rmtree(build_dir, ignore_errors=True)
     ensure_dir(build_dir)
 
+    effective_libs_cp = _effective_libs_cp_for_sources(libs_glob_cp=libs_glob_cp, java_files=java_files)
     ok, _tail, compiled_sources = compile_test_set_smart(
         java_files=java_files,
         build_dir=build_dir,
-        libs_glob_cp=libs_glob_cp,
+        libs_glob_cp=effective_libs_cp,
         sut_jar=sut_jar,
         log_file=log_file,
         repo_root_for_deps=repo_root_for_deps,
@@ -246,8 +318,30 @@ def _attempt_repo_class_fallback(
     )
 
 
+def _repo_manual_fallback_source_sets(
+    ctx: "TargetContext", generated_sources: Sequence[Path]
+) -> Tuple[List[Path], List[Path]]:
+    if not ctx.manual_sources:
+        return [], []
+
+    repo_manual_sources = prefer_repo_manual_sources(ctx.repo_root_for_deps, ctx.manual_sources)
+    if list(repo_manual_sources) == list(ctx.manual_sources):
+        return [], []
+
+    repo_full_sources = expand_same_package_support_sources(
+        ctx.repo_root_for_deps,
+        list(generated_sources) + list(repo_manual_sources),
+    )
+    repo_manual_compile_sources = expand_same_package_support_sources(
+        ctx.repo_root_for_deps,
+        repo_manual_sources,
+    )
+    return repo_full_sources, repo_manual_compile_sources
+
+
 class CompileStep(Step):
     step_names = ("compile",)
+    SUCCESS_STATUSES = {"compiled", "remediated_compile", "repo_manual_source_fallback", "repo_fallback"}
 
     @staticmethod
     def _reset_build_dir(build_dir: Path) -> None:
@@ -259,14 +353,25 @@ class CompileStep(Step):
         if not self.should_run():
             ctx.final_sources = ctx.sources
             return True
+        if self.pipeline.args.skip_passed and _latest_selected_compile_status(
+            self.pipeline.compile_summary_csv,
+            repo=ctx.repo,
+            fqcn=ctx.fqcn,
+        ) in self.SUCCESS_STATUSES:
+            print(f'[agt] compile: Skip (existing passed status): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+            ctx.final_sources = ctx.sources
+            return True
 
-        manual_sources = prefer_repo_manual_sources(ctx.repo_root_for_deps, ctx.manual_sources)
+        manual_sources = list(ctx.manual_sources)
         generated_sources = [s for s in ctx.sources if s not in set(ctx.manual_sources)]
+        for generated_source in generated_sources:
+            _normalize_evosuite_mock_answers(generated_source)
         full_sources = expand_same_package_support_sources(
             ctx.repo_root_for_deps,
             [s for s in ctx.sources if s not in set(ctx.manual_sources)] + manual_sources,
         )
         manual_compile_sources = expand_same_package_support_sources(ctx.repo_root_for_deps, manual_sources)
+        repo_full_sources, repo_manual_compile_sources = _repo_manual_fallback_source_sets(ctx, generated_sources)
         rows = {
             "full": _compile_summary_row(ctx=ctx, variant="full", requested_sources=ctx.sources, status="not_run"),
             "generated_only": _compile_summary_row(
@@ -285,10 +390,11 @@ class CompileStep(Step):
 
         self._reset_build_dir(ctx.target_build)
         compile_log = self.pipeline.logs_dir / f"{ctx.target_id}.compile.log"
+        full_libs_cp = _effective_libs_cp_for_sources(libs_glob_cp=self.pipeline.args.libs_cp, java_files=full_sources)
         ok, tail, compiled_sources = compile_test_set_smart(
             java_files=full_sources,
             build_dir=ctx.target_build,
-            libs_glob_cp=self.pipeline.args.libs_cp,
+            libs_glob_cp=full_libs_cp,
             sut_jar=ctx.sut_jar,
             log_file=compile_log,
             repo_root_for_deps=ctx.repo_root_for_deps,
@@ -314,7 +420,7 @@ class CompileStep(Step):
         ok_remediate, remediated_sources = _attempt_source_remediation(
             java_files=full_sources,
             build_dir=ctx.target_build,
-            libs_glob_cp=self.pipeline.args.libs_cp,
+            libs_glob_cp=full_libs_cp,
             sut_jar=ctx.sut_jar,
             log_file=compile_log,
             repo_root_for_deps=ctx.repo_root_for_deps,
@@ -334,6 +440,37 @@ class CompileStep(Step):
             rows["full"]["class_origin_detail"] = str(ctx.target_build)
             _append_compile_summary_rows(self.pipeline.compile_summary_csv, list(rows.values()))
             return True
+
+        if repo_full_sources:
+            self._reset_build_dir(ctx.target_build)
+            repo_full_log = self.pipeline.logs_dir / f"{ctx.target_id}.compile.repo-manual.log"
+            ok_repo_sources, _tail_repo_sources, compiled_repo_sources = compile_test_set_smart(
+                java_files=repo_full_sources,
+                build_dir=ctx.target_build,
+                libs_glob_cp=_effective_libs_cp_for_sources(
+                    libs_glob_cp=self.pipeline.args.libs_cp,
+                    java_files=repo_full_sources,
+                ),
+                sut_jar=ctx.sut_jar,
+                log_file=repo_full_log,
+                repo_root_for_deps=ctx.repo_root_for_deps,
+                module_rel=ctx.module_rel,
+                build_tool=ctx.build_tool,
+                max_rounds=self.pipeline.args.dep_rounds,
+            )
+            if ok_repo_sources:
+                ctx.final_sources = compiled_repo_sources
+                rows["full"]["status"] = "repo_manual_source_fallback"
+                rows["full"]["selected"] = "true"
+                rows["full"]["final_source_count"] = str(len(compiled_repo_sources))
+                rows["full"]["resolved_support_source_count"] = str(
+                    sum(1 for source in compiled_repo_sources if source not in set(repo_full_sources))
+                )
+                rows["full"]["class_origin"] = "repo_manual_source_fallback"
+                rows["full"]["class_origin_detail"] = str(ctx.target_build)
+                rows["full"]["log_file"] = str(repo_full_log)
+                _append_compile_summary_rows(self.pipeline.compile_summary_csv, list(rows.values()))
+                return True
 
         ok_repo, repo_origin = _attempt_repo_class_fallback(
             requested_sources=full_sources,
@@ -358,10 +495,14 @@ class CompileStep(Step):
         if generated_sources:
             self._reset_build_dir(ctx.target_build)
             gen_log = self.pipeline.logs_dir / f"{ctx.target_id}.compile.generated.log"
+            generated_libs_cp = _effective_libs_cp_for_sources(
+                libs_glob_cp=self.pipeline.args.libs_cp,
+                java_files=generated_sources,
+            )
             ok_gen, tail_gen, compiled_gen = compile_test_set_smart(
                 java_files=generated_sources,
                 build_dir=ctx.target_build,
-                libs_glob_cp=self.pipeline.args.libs_cp,
+                libs_glob_cp=generated_libs_cp,
                 sut_jar=ctx.sut_jar,
                 log_file=gen_log,
                 repo_root_for_deps=ctx.repo_root_for_deps,
@@ -388,7 +529,7 @@ class CompileStep(Step):
             ok_remediate, remediated_gen = _attempt_source_remediation(
                 java_files=generated_sources,
                 build_dir=ctx.target_build,
-                libs_glob_cp=self.pipeline.args.libs_cp,
+                libs_glob_cp=generated_libs_cp,
                 sut_jar=ctx.sut_jar,
                 log_file=gen_log,
                 repo_root_for_deps=ctx.repo_root_for_deps,
@@ -436,10 +577,14 @@ class CompileStep(Step):
         if ctx.manual_sources:
             self._reset_build_dir(ctx.target_build)
             man_log = self.pipeline.logs_dir / f"{ctx.target_id}.compile.manual.log"
+            manual_libs_cp = _effective_libs_cp_for_sources(
+                libs_glob_cp=self.pipeline.args.libs_cp,
+                java_files=manual_compile_sources,
+            )
             ok_man, tail_man, compiled_man = compile_test_set_smart(
                 java_files=manual_compile_sources,
                 build_dir=ctx.target_build,
-                libs_glob_cp=self.pipeline.args.libs_cp,
+                libs_glob_cp=manual_libs_cp,
                 sut_jar=ctx.sut_jar,
                 log_file=man_log,
                 repo_root_for_deps=ctx.repo_root_for_deps,
@@ -466,7 +611,7 @@ class CompileStep(Step):
             ok_remediate, remediated_man = _attempt_source_remediation(
                 java_files=manual_compile_sources,
                 build_dir=ctx.target_build,
-                libs_glob_cp=self.pipeline.args.libs_cp,
+                libs_glob_cp=manual_libs_cp,
                 sut_jar=ctx.sut_jar,
                 log_file=man_log,
                 repo_root_for_deps=ctx.repo_root_for_deps,
@@ -489,6 +634,39 @@ class CompileStep(Step):
                 rows["manual_only"]["class_origin_detail"] = str(ctx.target_build)
                 _append_compile_summary_rows(self.pipeline.compile_summary_csv, list(rows.values()))
                 return True
+            if repo_manual_compile_sources:
+                self._reset_build_dir(ctx.target_build)
+                repo_man_log = self.pipeline.logs_dir / f"{ctx.target_id}.compile.manual.repo-manual.log"
+                ok_repo_man, _tail_repo_man, compiled_repo_man = compile_test_set_smart(
+                    java_files=repo_manual_compile_sources,
+                    build_dir=ctx.target_build,
+                    libs_glob_cp=_effective_libs_cp_for_sources(
+                        libs_glob_cp=self.pipeline.args.libs_cp,
+                        java_files=repo_manual_compile_sources,
+                    ),
+                    sut_jar=ctx.sut_jar,
+                    log_file=repo_man_log,
+                    repo_root_for_deps=ctx.repo_root_for_deps,
+                    module_rel=ctx.module_rel,
+                    build_tool=ctx.build_tool,
+                    max_rounds=self.pipeline.args.dep_rounds,
+                )
+                if ok_repo_man:
+                    print(
+                        f'[agt] Proceeding with manual-only repo-manual-source fallback: repo="{ctx.repo}" fqcn="{ctx.fqcn}"'
+                    )
+                    ctx.final_sources = compiled_repo_man
+                    rows["manual_only"]["status"] = "repo_manual_source_fallback"
+                    rows["manual_only"]["selected"] = "true"
+                    rows["manual_only"]["final_source_count"] = str(len(compiled_repo_man))
+                    rows["manual_only"]["resolved_support_source_count"] = str(
+                        sum(1 for source in compiled_repo_man if source not in set(repo_manual_compile_sources))
+                    )
+                    rows["manual_only"]["class_origin"] = "repo_manual_source_fallback"
+                    rows["manual_only"]["class_origin_detail"] = str(ctx.target_build)
+                    rows["manual_only"]["log_file"] = str(repo_man_log)
+                    _append_compile_summary_rows(self.pipeline.compile_summary_csv, list(rows.values()))
+                    return True
             ok_repo, repo_origin = _attempt_repo_class_fallback(
                 requested_sources=manual_sources,
                 build_dir=ctx.target_build,
