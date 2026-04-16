@@ -67,6 +67,9 @@ public final class JUnit5TestRunner {
                                 + " succeeded=" + s.getTestsSucceededCount()
                                 + " failed=" + s.getTestsFailedCount()
                                 + " skipped=" + s.getTestsSkippedCount());
+                        if (s.getTestsFailedCount() > 0) {
+                            printFailures(selector, s);
+                        }
                     }
                 }
             }
@@ -106,6 +109,16 @@ public final class JUnit5TestRunner {
             return Class.forName(fqcn, true, classLoader);
         } catch (ClassNotFoundException ex) {
             throw new RuntimeException("Cannot load test class: " + fqcn, ex);
+        }
+    }
+
+    private void printFailures(String selector, TestExecutionSummary summary) {
+        for (TestExecutionSummary.Failure failure : summary.getFailures()) {
+            String testDisplay = failure.getTestIdentifier().getDisplayName();
+            Throwable ex = failure.getException();
+            String reason = ex != null ? ex.toString() : "Unknown failure";
+            System.out.println("[JUnit5TestRunner] FAILURE in " + selector
+                    + " -> " + testDisplay + " :: " + reason);
         }
     }
 }

@@ -4,6 +4,7 @@ import model.TestId;
 import org.junit.runner.JUnitCore;
 import org.junit.runner.Request;
 import org.junit.runner.Result;
+import org.junit.runner.notification.Failure;
 
 import java.util.List;
 import java.util.Map;
@@ -49,6 +50,9 @@ public final class JUnit4TestRunner {
                     if (r != null) {
                         totalRun += r.getRunCount();
                         totalFail += r.getFailureCount();
+                        if (r.getFailureCount() > 0) {
+                            printFailures(selector, r.getFailures());
+                        }
                     } else {
                         totalFail += 1;
                         totalTimeout += 1;
@@ -94,6 +98,16 @@ public final class JUnit4TestRunner {
             return Class.forName(fqcn, true, classLoader);
         } catch (ClassNotFoundException ex) {
             throw new RuntimeException("Cannot load test class: " + fqcn, ex);
+        }
+    }
+
+    private void printFailures(String selector, List<Failure> failures) {
+        for (Failure failure : failures) {
+            Throwable ex = failure.getException();
+            String testHeader = failure.getTestHeader();
+            String reason = ex != null ? ex.toString() : failure.getMessage();
+            System.out.println("[JUnit4TestRunner] FAILURE in " + selector
+                    + " -> " + testHeader + " :: " + reason);
         }
     }
 }
