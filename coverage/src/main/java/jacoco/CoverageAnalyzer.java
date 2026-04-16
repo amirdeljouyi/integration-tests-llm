@@ -21,6 +21,24 @@ public final class CoverageAnalyzer {
         this.classesDir = Objects.requireNonNull(classesDir, "classesDir");
     }
 
+    public static final class AnalysisResult {
+        private final Map<String, IClassCoverage> perClass;
+        private final CoverageSet coverageSet;
+
+        private AnalysisResult(Map<String, IClassCoverage> perClass, CoverageSet coverageSet) {
+            this.perClass = perClass;
+            this.coverageSet = coverageSet;
+        }
+
+        public Map<String, IClassCoverage> getPerClass() {
+            return perClass;
+        }
+
+        public CoverageSet getCoverageSet() {
+            return coverageSet;
+        }
+    }
+
     public static final class LineDelta {
         public final List<Integer> newlyCovered = new ArrayList<>();
         public final List<Integer> upgradedToFull = new ArrayList<>();
@@ -40,9 +58,15 @@ public final class CoverageAnalyzer {
     public Map<String, LineDelta> newlyCoveredLines(
             File baselineExec,
             File candidateExec) throws IOException {
+        return newlyCoveredLines(analyzeExec(baselineExec), analyzeExec(candidateExec));
+    }
 
-        Map<String, IClassCoverage> base = analyzePerClass(baselineExec);
-        Map<String, IClassCoverage> cand = analyzePerClass(candidateExec);
+    public Map<String, LineDelta> newlyCoveredLines(
+            AnalysisResult baseline,
+            AnalysisResult candidate) {
+
+        Map<String, IClassCoverage> base = baseline.getPerClass();
+        Map<String, IClassCoverage> cand = candidate.getPerClass();
 
         Map<String, LineDelta> result = new LinkedHashMap<>();
 
@@ -96,7 +120,11 @@ public final class CoverageAnalyzer {
     }
 
     public jacoco.TestDelta testDeltaTotals(File baselineExec, File candidateExec, String testSelector) throws IOException {
-        java.util.List<jacoco.ClassDelta> perClass = perClassDelta(baselineExec, candidateExec);
+        return testDeltaTotals(analyzeExec(baselineExec), analyzeExec(candidateExec), testSelector);
+    }
+
+    public jacoco.TestDelta testDeltaTotals(AnalysisResult baseline, AnalysisResult candidate, String testSelector) {
+        java.util.List<jacoco.ClassDelta> perClass = perClassDelta(baseline, candidate);
 
         int lines = 0, methods = 0, branches = 0, instr = 0;
         for (jacoco.ClassDelta d : perClass) {
@@ -109,8 +137,12 @@ public final class CoverageAnalyzer {
     }
 
     public List<ClassDelta> perClassDelta(File baselineExec, File candidateExec) throws IOException {
-        Map<String, IClassCoverage> base = analyzePerClass(baselineExec);
-        Map<String, IClassCoverage> cand = analyzePerClass(candidateExec);
+        return perClassDelta(analyzeExec(baselineExec), analyzeExec(candidateExec));
+    }
+
+    public List<ClassDelta> perClassDelta(AnalysisResult baseline, AnalysisResult candidate) {
+        Map<String, IClassCoverage> base = baseline.getPerClass();
+        Map<String, IClassCoverage> cand = candidate.getPerClass();
 
         List<ClassDelta> deltas = new ArrayList<>();
         for (Map.Entry<String, IClassCoverage> e : cand.entrySet()) {
@@ -138,34 +170,36 @@ public final class CoverageAnalyzer {
         return cand.getCoveredCount() - b;
     }
 
-    private Map<String, IClassCoverage> analyzePerClass(File execFile) throws IOException {
+    public AnalysisResult analyzeExec(File execFile) throws IOException {
+        Objects.requireNonNull(execFile, "execFile");
         ExecFileLoader loader = new ExecFileLoader();
         loader.load(execFile);
+        return analyzeFromLoader(loader);
+    }
 
+    public AnalysisResult analyzeMergedExecs(File... execFiles) throws IOException {
+        Objects.requireNonNull(execFiles, "execFiles");
+        if (execFiles.length == 0) {
+            throw new IllegalArgumentException("execFiles is empty");
+        }
+        ExecFileLoader loader = new ExecFileLoader();
+        for (File execFile : execFiles) {
+            Objects.requireNonNull(execFile, "execFile");
+            loader.load(execFile);
+        }
+        return analyzeFromLoader(loader);
+    }
+
+    private AnalysisResult analyzeFromLoader(ExecFileLoader loader) throws IOException {
         CoverageBuilder builder = new CoverageBuilder();
         Analyzer analyzer = new Analyzer(loader.getExecutionDataStore(), builder);
         analyzer.analyzeAll(classesDir);
 
         Map<String, IClassCoverage> out = new HashMap<>();
+        Set<String> units = new HashSet<>();
         for (IClassCoverage cc : builder.getClasses()) {
             out.put(cc.getName().replace('/', '.'), cc);
-        }
-        return out;
-    }
 
-    public CoverageSet analyze(File execFile) throws IOException {
-        Objects.requireNonNull(execFile, "execFile");
-
-        ExecFileLoader loader = new ExecFileLoader();
-        loader.load(execFile);
-
-        CoverageBuilder builder = new CoverageBuilder();
-        Analyzer analyzer = new Analyzer(loader.getExecutionDataStore(), builder);
-        analyzer.analyzeAll(classesDir);
-
-        Set<String> units = new HashSet<>();
-
-        for (IClassCoverage cc : builder.getClasses()) {
             String className = cc.getName(); // internal name: pkg/Foo
             for (IMethodCoverage mc : cc.getMethods()) {
                 String methodName = mc.getName();
@@ -178,7 +212,10 @@ public final class CoverageAnalyzer {
                 }
             }
         }
+        return new AnalysisResult(out, new CoverageSet(units));
+    }
 
-        return new CoverageSet(units);
+    public CoverageSet analyze(File execFile) throws IOException {
+        return analyzeExec(execFile).getCoverageSet();
     }
 }

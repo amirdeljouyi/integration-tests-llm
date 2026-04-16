@@ -173,7 +173,8 @@ public final class CoverageFilterApp {
         File baselineExec = new File(workDir, "baseline_manual.exec");
         runner.runSelectors(java.util.List.of(manualTestClass), baselineExec, false);
 
-        model.CoverageSet baseline = coverageAnalyzer.analyze(baselineExec);
+        jacoco.CoverageAnalyzer.AnalysisResult baselineAnalysis = coverageAnalyzer.analyzeExec(baselineExec);
+        model.CoverageSet baseline = baselineAnalysis.getCoverageSet();
 
         /* =========================
          * 2) Discover AGT methods (forked)
@@ -209,19 +210,24 @@ public final class CoverageFilterApp {
             String selector = agtTestClass + "#" + methods.get(i);
             File candExec = new File(workDir, "cand_" + i + ".exec");
 
-            // Run manual + candidate method in one fork
-            runner.runSelectors(java.util.List.of(manualTestClass, selector), candExec, false);
+            // Run candidate method only; baseline is merged during analysis.
+            runner.runSelectors(java.util.List.of(selector), candExec, false);
 
-            // CoverageSet for keep/drop decision
-            model.CoverageSet cand = coverageAnalyzer.analyze(candExec);
+            // Analyze baseline + candidate from merged exec data in one pass.
+            jacoco.CoverageAnalyzer.AnalysisResult baselinePlusCandidate =
+                    coverageAnalyzer.analyzeMergedExecs(baselineExec, candExec);
 
-            // High-level totals for ranking (vs manual baseline)
-            jacoco.TestDelta td = coverageAnalyzer.testDeltaTotals(baselineExec, candExec, selector);
+            // Candidate-only contribution beyond manual baseline.
+            model.CoverageSet candAddedVsBaseline =
+                    baselinePlusCandidate.getCoverageSet().subtract(baseline);
+
+            // High-level totals for ranking (vs manual baseline).
+            jacoco.TestDelta td = coverageAnalyzer.testDeltaTotals(baselineAnalysis, baselinePlusCandidate, selector);
             allTestDeltas.add(td);
 
-            if (cand.addsAnythingBeyond(current)) {
+            if (candAddedVsBaseline.addsAnythingBeyond(current)) {
                 keptSelectors.add(selector);
-                current = current.union(cand);
+                current = current.union(candAddedVsBaseline);
 
                 keptTestDeltas.add(td);
 
@@ -233,7 +239,7 @@ public final class CoverageFilterApp {
 
                 // Per-test line attribution (store into CSV rows)
                 java.util.Map<String, jacoco.CoverageAnalyzer.LineDelta> deltas =
-                        coverageAnalyzer.newlyCoveredLines(baselineExec, candExec);
+                        coverageAnalyzer.newlyCoveredLines(baselineAnalysis, baselinePlusCandidate);
 
                 for (java.util.Map.Entry<String, jacoco.CoverageAnalyzer.LineDelta> e : deltas.entrySet()) {
                     jacoco.CoverageAnalyzer.LineDelta d = e.getValue();
