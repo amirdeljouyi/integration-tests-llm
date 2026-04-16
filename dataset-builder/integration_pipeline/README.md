@@ -55,6 +55,8 @@ Defaults:
 Examples:
 
 ```bash
+python -m src clone
+python -m src fatjar
 python -m src generate-auto
 python -m src sync --variants auto
 python -m src coverage compare-reduced --top-n 5
@@ -70,29 +72,33 @@ Some commands are grouped under subcommands: `llm`, `adopted`, and `coverage`.
 
 Priority order (recommended run sequence):
 
-1) `generate-auto`
-2) `sync --variants auto`
-3) `compile`
-4) `run`
-5) `filter`  
-6) `reduce`  
-7) `llm all`  
-8) `llm improve`  
-9) `llm integrate`  
-10) `llm integrate-sbs`  
-11) `llm agent`  
-12) `repair fix`  
-13) `repair comment`  
-14) `filter --variants adopted,agentic`  
-15) `reduce --variants adopted,agentic --max-tests 5`  
-16) `compare`  
-17) `run --variants adopted,agentic`  
-18) `pull-request-maker`  
-19) `coverage compare`  
-20) `coverage compare-reduced`
+1) `clone`
+2) `fatjar`
+3) `generate-auto`
+4) `sync --variants auto`
+5) `compile`
+6) `run`
+7) `filter`  
+8) `reduce`  
+9) `llm all`  
+10) `llm improve`  
+11) `llm integrate`  
+12) `llm integrate-sbs`  
+13) `llm agent`  
+14) `repair fix`  
+15) `repair comment`  
+16) `filter --variants adopted,agentic`  
+17) `reduce --variants adopted,agentic --max-tests 5`  
+18) `compare`  
+19) `run --variants adopted,agentic`  
+20) `pull-request-maker`  
+21) `coverage compare`  
+22) `coverage compare-reduced`
 
 Step descriptions:
 
+- `clone` - clone repos for the configured selected CUT CSV and create/update `../repos` plus `../out/repo_roots.csv`. Command: `clone`.
+- `fatjar` - build fat jars for the configured selected CUT CSV and write `cut_to_fatjar_map.csv` (default `../out/cut_to_fatjar_map.csv`). Command: `fatjar`.
 - `generate-auto` - run `../run-agt/run-agt.sh` with the configured CUT-to-fatjar map, then run `../collect_tests.sh` so the generated tests land in `../collected-tests/generated` and refresh `../collected-tests/_logs/tests_inventory.csv`. By default it skips CUTs that already have generated tests; use `--no-skip-existing` to force reruns. Command: `generate-auto --skip-existing`.
 - `sync` - run `../collect_tests.sh` against the existing `../run-agt/result` output in a staging directory, then refresh only `../collected-tests/generated` and inventory/logs. It intentionally does not modify `../collected-tests/manual`. When `../collected-tests/generated` already exists, rerun with `--force` to merge the staged output instead of replacing the tree. Right now only `--variants auto` is supported. Command: `sync --variants auto --force`.
 - `compile` - compile generated and manual tests, resolve dependencies, retry safe source-level compile remediation for `auto`/`manual` test sources by adjusting exception declarations, and write `results/compile/compile_summary.csv`. Command: `compile`.
