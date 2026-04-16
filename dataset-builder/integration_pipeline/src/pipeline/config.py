@@ -82,6 +82,15 @@ def covfilter_candidate_out_dirs(
 class PipelineArgs:
     tests_inventory_csv: str = "../collected-tests/_logs/tests_inventory.csv"
     cut_to_fatjar_map_csv: str = "../out/cut_to_fatjar_map.csv"
+    selected_cut_csv: str = "../selected_cut_classes.csv"
+    clone_mode: str = "local"
+    clone_base_dir: str = ".."
+    clone_update_existing: bool = False
+    fatjar_mode: str = "local"
+    fatjar_base_dir: str = ".."
+    fatjar_java_home: str = ""
+    fatjar_java21_home: str = ""
+    fatjar_retry_only: bool = False
     generate_auto_script: str = "../run-agt/run-agt.sh"
     generate_auto_output_dir: str = "../run-agt/result"
     collect_tests_script: str = "../collect_tests.sh"

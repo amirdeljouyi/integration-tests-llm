@@ -233,6 +233,64 @@ def all(ctx: typer.Context) -> None:
     _run(ctx, "all")
 
 
+@cli.command("clone", help="Clone repositories listed in selected_cut_classes.csv")
+def clone(
+    ctx: typer.Context,
+    selected_cut_csv: Annotated[Path, typer.Option(help="Path to selected CUT CSV")] = Path(
+        str(DEFAULTS["selected_cut_csv"])
+    ),
+    mode: Annotated[str, typer.Option(help="Clone mode: local or docker")] = str(DEFAULTS["clone_mode"]),
+    base_dir: Annotated[Path, typer.Option(help="Base dir used by clone step in local mode")] = Path(
+        str(DEFAULTS["clone_base_dir"])
+    ),
+    update_existing: Annotated[
+        bool,
+        typer.Option("--update-existing/--no-update-existing", help="Fetch/reset existing repositories"),
+    ] = bool(DEFAULTS["clone_update_existing"]),
+) -> None:
+    _run(
+        ctx,
+        "clone",
+        selected_cut_csv=str(selected_cut_csv),
+        clone_mode=mode,
+        clone_base_dir=str(base_dir),
+        clone_update_existing=update_existing,
+    )
+
+
+@cli.command("fatjar", help="Build CUT fat jars and write cut_to_fatjar_map.csv")
+def fatjar(
+    ctx: typer.Context,
+    selected_cut_csv: Annotated[Path, typer.Option(help="Path to selected CUT CSV")] = Path(
+        str(DEFAULTS["selected_cut_csv"])
+    ),
+    mode: Annotated[str, typer.Option(help="Build mode: local or docker")] = str(DEFAULTS["fatjar_mode"]),
+    base_dir: Annotated[Path, typer.Option(help="Base dir used by fatjar step in local mode")] = Path(
+        str(DEFAULTS["fatjar_base_dir"])
+    ),
+    java_home: Annotated[str, typer.Option(help="JAVA_HOME override for fatjar build")] = str(
+        DEFAULTS["fatjar_java_home"]
+    ),
+    java21_home: Annotated[str, typer.Option(help="JDK 21 home override for Maven wrapper builds")] = str(
+        DEFAULTS["fatjar_java21_home"]
+    ),
+    retry_only: Annotated[
+        bool,
+        typer.Option("--retry-only/--no-retry-only", help="Build only previously failed CUT rows"),
+    ] = bool(DEFAULTS["fatjar_retry_only"]),
+) -> None:
+    _run(
+        ctx,
+        "fatjar",
+        selected_cut_csv=str(selected_cut_csv),
+        fatjar_mode=mode,
+        fatjar_base_dir=str(base_dir),
+        fatjar_java_home=java_home,
+        fatjar_java21_home=java21_home,
+        fatjar_retry_only=retry_only,
+    )
+
+
 @cli.command("generate-auto", help="Generate auto tests via ../run-agt and refresh collected-tests")
 def generate_auto(
     ctx: typer.Context,

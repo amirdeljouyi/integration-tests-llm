@@ -54,6 +54,8 @@ from ..steps import (
     SendStep,
     Step,
 )
+from ..steps.clone import CloneConfig, run_clone as run_clone_step
+from ..steps.fatjar import FatjarConfig, run_fatjar as run_fatjar_step
 
 
 @dataclass
@@ -98,8 +100,24 @@ class Pipeline:
             setattr(self, f.name, getattr(self.config, f.name))
 
     def run(self) -> int:
-        self.run_configuration()
         step = (self.args.step or "all").strip()
+        if step in ("clone", "all"):
+            rc = self.run_clone()
+            if rc != 0:
+                return rc
+        if step == "clone":
+            self.ran = 1
+            self.print_step_summary()
+            return 0
+        if step in ("fatjar", "all"):
+            rc = self.run_fatjar()
+            if rc != 0:
+                return rc
+        if step == "fatjar":
+            self.ran = 1
+            self.print_step_summary()
+            return 0
+        self.run_configuration()
         if step in ("generate-auto", "all"):
             rc = self.run_generate_auto()
             if rc != 0:
@@ -137,6 +155,24 @@ class Pipeline:
             print(f"[agt] {label}: {value}")
 
     def _step_artifact_lines(self, step: str) -> List[Tuple[str, Path]]:
+        if step == "clone":
+            base_dir = self._step_base_dir(self.args.clone_mode, self.args.clone_base_dir)
+            out_dir = base_dir / "out"
+            return [
+                ("Repos dir", base_dir / "repos"),
+                ("Repo roots CSV", out_dir / "repo_roots.csv"),
+                ("Clone logs", out_dir / "logs-clone"),
+                ("Pipeline logs", self._pipeline_logs_dir()),
+            ]
+        if step == "fatjar":
+            base_dir = self._step_base_dir(self.args.fatjar_mode, self.args.fatjar_base_dir)
+            out_dir = base_dir / "out"
+            return [
+                ("Fatjar map", Path(self.args.cut_to_fatjar_map_csv).resolve()),
+                ("Fatjar output", out_dir),
+                ("Fatjar logs", out_dir / "logs-build"),
+                ("Pipeline logs", self._pipeline_logs_dir()),
+            ]
         if step == "generate-auto":
             return [
                 ("Generated tests", self.generated_dir),
@@ -272,6 +308,42 @@ class Pipeline:
             ("Out dir", self.out_dir),
             ("Logs", self.logs_dir),
         ]
+
+    @staticmethod
+    def _step_base_dir(mode: str, base_dir: str) -> Path:
+        if (mode or "").strip() == "docker":
+            return Path("/work")
+        return Path(base_dir).resolve()
+
+    def _pipeline_logs_dir(self) -> Path:
+        logs_dir = Path(self.args.out_dir) / "logs"
+        ensure_dir(logs_dir)
+        return logs_dir.resolve()
+
+    def run_clone(self) -> int:
+        return run_clone_step(
+            CloneConfig(
+                cut_csv=Path(self.args.selected_cut_csv),
+                mode=self.args.clone_mode,
+                base_dir=self._step_base_dir(self.args.clone_mode, self.args.clone_base_dir),
+                update_existing=self.args.clone_update_existing,
+            )
+        )
+
+    def run_fatjar(self) -> int:
+        out_map_csv = Path(self.args.cut_to_fatjar_map_csv)
+        ensure_dir(out_map_csv.resolve().parent)
+        return run_fatjar_step(
+            FatjarConfig(
+                cut_csv=Path(self.args.selected_cut_csv),
+                mode=self.args.fatjar_mode,
+                base_dir=self._step_base_dir(self.args.fatjar_mode, self.args.fatjar_base_dir),
+                java_home=self.args.fatjar_java_home,
+                java21_home=self.args.fatjar_java21_home,
+                out_map_csv=out_map_csv,
+                retry_only=self.args.fatjar_retry_only,
+            )
+        )
 
     def run_generate_auto(self) -> int:
         step = (self.args.step or "all").strip()
