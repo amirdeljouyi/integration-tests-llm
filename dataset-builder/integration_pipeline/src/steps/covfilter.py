@@ -10,11 +10,12 @@ import subprocess
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple, TYPE_CHECKING
+from typing import List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 from ..core.common import ensure_dir, parse_package_and_class, shlex_join, write_text
 from ..core.java import (
     compile_test_set_smart,
+    expand_same_package_support_sources,
     resolve_external_runtime_classpath_from_output,
     resolve_repo_runtime_classpath,
 )
@@ -48,6 +49,8 @@ DEFAULT_JAVA_OPTS: List[str] = [
     "--add-opens=java.base/java.util=ALL-UNNAMED",
     "--add-opens=java.base/java.io=ALL-UNNAMED",
     "--add-opens=java.base/java.net=ALL-UNNAMED",
+    "--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED",
+    "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
     "-Djava.awt.headless=true",
     "-Dnet.bytebuddy.experimental=true",
 ]
@@ -170,9 +173,10 @@ class CovfilterRunner:
         if extra_java_opts:
             java_opts.extend(extra_java_opts)
 
-        cp_parts = [libs_glob_cp, str(coverage_filter_jar), str(test_classes_dir)]
+        cp_parts = [libs_glob_cp, str(test_classes_dir)]
         if extra_runtime_cp.strip():
             cp_parts.append(extra_runtime_cp.strip())
+        cp_parts.append(str(coverage_filter_jar))
         cp = ":".join(part for part in cp_parts if part)
 
         cmd = (
@@ -444,6 +448,278 @@ def _merge_classpath_strings(*parts: str) -> str:
     return ":".join(merged)
 
 
+def _source_module_dir(java_file: Path) -> Optional[Path]:
+    parts = list(java_file.parts)
+    for marker in (
+        ("src", "test", "java"),
+        ("src", "test", "kotlin"),
+        ("src", "main", "java"),
+        ("src", "main", "kotlin"),
+    ):
+        marker_len = len(marker)
+        for idx in range(len(parts) - marker_len + 1):
+            if tuple(parts[idx : idx + marker_len]) == marker:
+                return Path(*parts[:idx])
+    return None
+
+
+def _extract_missing_service_provider_classes(output: str) -> List[str]:
+    providers: List[str] = []
+    seen = set()
+    pattern = re.compile(
+        r"ServiceConfigurationError:\s+[A-Za-z0-9_.$]+:\s+Provider\s+([A-Za-z0-9_.$]+)\s+not found"
+    )
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = pattern.search(line)
+        if not match:
+            continue
+        provider = match.group(1).strip()
+        if not provider or provider in seen:
+            continue
+        seen.add(provider)
+        providers.append(provider)
+    return providers
+
+
+def _source_path_for_provider_fqcn(
+    *,
+    provider_fqcn: str,
+    module_dir: Optional[Path],
+    repo_root_for_deps: Optional[Path],
+    module_rel: str,
+) -> Optional[Path]:
+    rel_path = Path(*provider_fqcn.split(".")).with_suffix(".java")
+    roots: List[Path] = []
+    seen = set()
+
+    def add_root(root: Optional[Path]) -> None:
+        if root is None:
+            return
+        key = str(root.resolve()) if root.exists() else str(root)
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(root)
+
+    if module_dir is not None:
+        add_root(module_dir / "src" / "test" / "java")
+        add_root(module_dir / "src" / "main" / "java")
+
+    if repo_root_for_deps and repo_root_for_deps.exists():
+        rel = (module_rel or "").strip()
+        if rel and rel not in {".", "root"}:
+            module_root = repo_root_for_deps / rel
+            add_root(module_root / "src" / "test" / "java")
+            add_root(module_root / "src" / "main" / "java")
+        add_root(repo_root_for_deps / "src" / "test" / "java")
+        add_root(repo_root_for_deps / "src" / "main" / "java")
+
+    for root in roots:
+        candidate = root / rel_path
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _compile_service_provider_sources(
+    *,
+    provider_sources: Sequence[Path],
+    existing_sources: Sequence[Path],
+    build_dir: Path,
+    libs_glob_cp: str,
+    sut_jar: Path,
+    log_file: Path,
+    repo_root_for_deps: Optional[Path],
+    module_rel: str,
+    build_tool: str,
+    max_rounds: int,
+) -> bool:
+    if not provider_sources:
+        return False
+    compile_sources = expand_same_package_support_sources(repo_root_for_deps, list(provider_sources))
+    effective_libs_cp = _effective_compile_libs_cp_for_sources(
+        libs_glob_cp=libs_glob_cp,
+        sources=[*existing_sources, *compile_sources],
+    )
+    ok, _tail, _compiled_sources = compile_test_set_smart(
+        java_files=compile_sources,
+        build_dir=build_dir,
+        libs_glob_cp=effective_libs_cp,
+        sut_jar=sut_jar,
+        log_file=log_file,
+        repo_root_for_deps=repo_root_for_deps,
+        module_rel=module_rel,
+        build_tool=build_tool,
+        max_rounds=max_rounds,
+    )
+    return ok
+
+
+def _parse_javac_error_lines_by_source(log_text: str) -> dict[Path, Set[int]]:
+    errors: dict[Path, Set[int]] = {}
+    pattern = re.compile(r"^(.+?\.java):(\d+):\s+error:")
+    for raw_line in log_text.splitlines():
+        match = pattern.match(raw_line.strip())
+        if not match:
+            continue
+        source_path = Path(match.group(1)).resolve()
+        line_no = int(match.group(2))
+        errors.setdefault(source_path, set()).add(line_no)
+    return errors
+
+
+def _method_spans_with_annotations(lines: Sequence[str]) -> List[Tuple[int, int, int]]:
+    spans: List[Tuple[int, int, int]] = []
+    method_pattern = re.compile(
+        r"^\s*(?:public|protected|private)\s+(?:static\s+)?(?:<[^>]+>\s+)?[\w\[\]<>?,.$\s]+\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\("
+    )
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        if not method_pattern.match(line):
+            idx += 1
+            continue
+        decl_start = idx
+        end = idx
+        brace_depth = line.count("{") - line.count("}")
+        saw_open = line.count("{") > 0
+        while end + 1 < len(lines):
+            if saw_open and brace_depth <= 0:
+                break
+            end += 1
+            candidate = lines[end]
+            opens = candidate.count("{")
+            closes = candidate.count("}")
+            if opens > 0:
+                saw_open = True
+            brace_depth += opens - closes
+        if not saw_open:
+            idx += 1
+            continue
+        anno_start = decl_start
+        while anno_start > 0 and lines[anno_start - 1].strip().startswith("@"):
+            anno_start -= 1
+        spans.append((anno_start, decl_start, end))
+        idx = end + 1
+    return spans
+
+
+def _drop_generated_methods_containing_errors(java_file: Path, error_lines: Set[int]) -> bool:
+    if not error_lines:
+        return False
+    try:
+        lines = java_file.read_text(encoding="utf-8", errors="ignore").splitlines(keepends=True)
+    except OSError:
+        return False
+    if not lines:
+        return False
+
+    spans = _method_spans_with_annotations(lines)
+    if not spans:
+        return False
+
+    remove_indexes: Set[int] = set()
+    for anno_start, decl_start, end in spans:
+        start_line = decl_start + 1
+        end_line = end + 1
+        if any(start_line <= line_no <= end_line for line_no in error_lines):
+            remove_indexes.update(range(anno_start, end + 1))
+    if not remove_indexes:
+        return False
+
+    updated = [line for idx, line in enumerate(lines) if idx not in remove_indexes]
+    if updated == lines:
+        return False
+    try:
+        java_file.write_text("".join(updated), encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def _prune_generated_methods_from_compile_errors(java_files: Sequence[Path], compile_output: str) -> bool:
+    if not compile_output:
+        return False
+    generated_candidates = {
+        source.resolve(): source
+        for source in java_files
+        if "_ESTest" in source.name and not source.name.endswith("_ESTest_scaffolding.java")
+    }
+    if not generated_candidates:
+        return False
+    errors_by_source = _parse_javac_error_lines_by_source(compile_output)
+    changed = False
+    for source_path, error_lines in errors_by_source.items():
+        candidate = generated_candidates.get(source_path)
+        if candidate is None:
+            continue
+        changed = _drop_generated_methods_containing_errors(candidate, error_lines) or changed
+    return changed
+
+
+def _compile_with_generated_pruning(
+    *,
+    java_files: Sequence[Path],
+    build_dir: Path,
+    libs_glob_cp: str,
+    sut_jar: Path,
+    log_file: Path,
+    repo_root_for_deps: Optional[Path],
+    module_rel: str,
+    build_tool: str,
+    max_rounds: int,
+) -> Tuple[bool, str, List[Path]]:
+    ok, tail, compiled_sources = compile_test_set_smart(
+        java_files=java_files,
+        build_dir=build_dir,
+        libs_glob_cp=libs_glob_cp,
+        sut_jar=sut_jar,
+        log_file=log_file,
+        repo_root_for_deps=repo_root_for_deps,
+        module_rel=module_rel,
+        build_tool=build_tool,
+        max_rounds=max_rounds,
+    )
+    if ok:
+        return ok, tail, compiled_sources
+
+    compile_output = log_file.read_text(encoding="utf-8", errors="ignore")
+    if not _prune_generated_methods_from_compile_errors(java_files, compile_output):
+        return ok, tail, compiled_sources
+
+    ok, tail, compiled_sources = compile_test_set_smart(
+        java_files=java_files,
+        build_dir=build_dir,
+        libs_glob_cp=libs_glob_cp,
+        sut_jar=sut_jar,
+        log_file=log_file,
+        repo_root_for_deps=repo_root_for_deps,
+        module_rel=module_rel,
+        build_tool=build_tool,
+        max_rounds=max_rounds,
+    )
+    if ok:
+        return ok, tail, compiled_sources
+
+    second_output = log_file.read_text(encoding="utf-8", errors="ignore")
+    if second_output != compile_output and _prune_generated_methods_from_compile_errors(java_files, second_output):
+        ok, tail, compiled_sources = compile_test_set_smart(
+            java_files=java_files,
+            build_dir=build_dir,
+            libs_glob_cp=libs_glob_cp,
+            sut_jar=sut_jar,
+            log_file=log_file,
+            repo_root_for_deps=repo_root_for_deps,
+            module_rel=module_rel,
+            build_tool=build_tool,
+            max_rounds=max_rounds,
+        )
+    return ok, tail, compiled_sources
+
+
 def _uses_regular_mockito_evosuite_runtime(text: str) -> bool:
     return (
         "org.mockito.Mockito" in text
@@ -461,6 +737,49 @@ def _filter_evosuite_standalone_runtime(classpath: str) -> str:
         if Path(candidate).name.startswith("evosuite-standalone-runtime-"):
             continue
         filtered.append(candidate)
+    return ":".join(filtered)
+
+
+def _filter_conflicting_slf4j_bindings(classpath: str) -> str:
+    entries = [entry.strip() for entry in classpath.split(":") if entry.strip()]
+    if not entries:
+        return ""
+
+    artifact_keys = {entry: _covfilter_runtime_jar_artifact_key(entry) for entry in entries}
+    if "logback-classic" not in artifact_keys.values():
+        return ":".join(entries)
+
+    conflicting_bindings = {
+        "slf4j-simple",
+        "slf4j-nop",
+        "slf4j-jdk14",
+        "slf4j-log4j12",
+        "slf4j-reload4j",
+        "log4j-slf4j-impl",
+        "log4j-slf4j2-impl",
+    }
+    filtered = [entry for entry in entries if artifact_keys.get(entry, "") not in conflicting_bindings]
+
+    # logback 1.2.x is an SLF4J 1.7 backend; force the API family to match.
+    logback_entries = [entry for entry in filtered if artifact_keys.get(entry, "") == "logback-classic"]
+    logback_version = _covfilter_runtime_jar_version(logback_entries[0]) if logback_entries else ""
+    logback_major = _covfilter_runtime_version_major(logback_version)
+    logback_minor = _covfilter_runtime_version_minor(logback_version)
+    if logback_major == 1 and logback_minor <= 2:
+        filtered = [
+            entry
+            for entry in filtered
+            if not (
+                artifact_keys.get(entry, "") == "slf4j-api"
+                and _covfilter_runtime_version_major(_covfilter_runtime_jar_version(entry)) >= 2
+            )
+        ]
+        if not any(artifact_keys.get(entry, "") == "slf4j-api" for entry in filtered):
+            slf4j_api_1x = _latest_m2_artifact_jar_for_prefix("org/slf4j", "slf4j-api", "1.7.")
+            if not slf4j_api_1x:
+                slf4j_api_1x = _m2_artifact_jar("org/slf4j", "slf4j-api", "1.7.36")
+            if slf4j_api_1x:
+                filtered.append(slf4j_api_1x)
     return ":".join(filtered)
 
 
@@ -489,6 +808,32 @@ def _covfilter_runtime_jar_artifact_key(entry: str) -> str:
 
     match = re.match(r"^(?P<artifact>.+)-\d", path.stem)
     return (match.group("artifact") if match else path.stem).lower()
+
+
+def _covfilter_runtime_jar_version(entry: str) -> str:
+    path = Path(entry)
+    if not path.exists() or not path.is_file() or path.suffix != ".jar":
+        return ""
+
+    resolved = path.resolve()
+    parts = resolved.parts
+    if ".m2" in parts and "repository" in parts:
+        return resolved.parent.name
+    if ".gradle" in parts and "files-2.1" in parts:
+        return resolved.parent.parent.name
+
+    match = re.match(r"^.+-(?P<version>\d[^/]*)$", path.stem)
+    return match.group("version") if match else ""
+
+
+def _covfilter_runtime_version_major(version: str) -> int:
+    match = re.match(r"^(\d+)", version or "")
+    return int(match.group(1)) if match else 0
+
+
+def _covfilter_runtime_version_minor(version: str) -> int:
+    match = re.match(r"^\d+\.(\d+)", version or "")
+    return int(match.group(1)) if match else 0
 
 
 def _covfilter_runtime_jar_preference(entry: str) -> tuple[int, tuple]:
@@ -617,6 +962,18 @@ def _latest_m2_artifact_version(group_path: str, artifact_name: str) -> str:
         return ""
     versions = sorted((path.name for path in artifact_root.iterdir() if path.is_dir()))
     return versions[-1] if versions else ""
+
+
+def _latest_m2_artifact_jar_for_prefix(group_path: str, artifact_name: str, version_prefix: str) -> str:
+    artifact_root = Path.home() / ".m2" / "repository" / group_path / artifact_name
+    if not artifact_root.exists():
+        return ""
+    versions = [path.name for path in artifact_root.iterdir() if path.is_dir() and path.name.startswith(version_prefix)]
+    if not versions:
+        return ""
+    version = max(versions, key=_covfilter_runtime_version_sort_key)
+    matches = sorted((artifact_root / version).glob(f"{artifact_name}-*.jar"))
+    return str(matches[-1]) if matches else ""
 
 
 def _m2_artifact_jar(group_path: str, artifact_name: str, version: str = "") -> str:
@@ -1275,7 +1632,7 @@ def _run_auto_covfilter_candidate(
         libs_glob_cp=pipeline.args.libs_cp,
         sources=candidate.source_files,
     )
-    ok_compile, compile_tail, compiled_sources = compile_test_set_smart(
+    ok_compile, compile_tail, compiled_sources = _compile_with_generated_pruning(
         java_files=candidate.source_files,
         build_dir=candidate.build_dir,
         libs_glob_cp=effective_libs_cp,
@@ -1513,6 +1870,13 @@ def _run_covfilter_with_retries(
     sut_cp_entry: Path,
     log_file: Path,
 ) -> Tuple[bool, str]:
+    module_dir: Optional[Path] = None
+    for source in source_files:
+        candidate_module_dir = _source_module_dir(source)
+        if candidate_module_dir is not None:
+            module_dir = candidate_module_dir
+            break
+
     repo_runtime_cp = ""
     if ctx.repo_root_for_deps and ctx.repo_root_for_deps.exists():
         repo_runtime_cp = resolve_repo_runtime_classpath(
@@ -1530,6 +1894,8 @@ def _run_covfilter_with_retries(
         _spring_runtime_cp_for_sources(source_files),
         repo_runtime_cp,
     )
+    extra_runtime_cp = _filter_conflicting_slf4j_bindings(extra_runtime_cp)
+    attempted_service_providers: Set[str] = set()
 
     for _ in range(_COVFILTER_RUNTIME_RETRY_LIMIT):
         base_libs_dir = libs_dir_from_glob(libs_glob_cp)
@@ -1569,6 +1935,43 @@ def _run_covfilter_with_retries(
         if ok_cov and covfilter_output_exists(out_dir):
             return ok_cov, cov_tail
         full_output = log_file.read_text(encoding="utf-8", errors="ignore")
+        missing_providers = [
+            provider
+            for provider in _extract_missing_service_provider_classes(full_output)
+            if provider not in attempted_service_providers
+        ]
+        if missing_providers:
+            attempted_service_providers.update(missing_providers)
+            provider_sources: List[Path] = []
+            seen_provider_sources = set()
+            for provider in missing_providers:
+                source_path = _source_path_for_provider_fqcn(
+                    provider_fqcn=provider,
+                    module_dir=module_dir,
+                    repo_root_for_deps=ctx.repo_root_for_deps,
+                    module_rel=ctx.module_rel,
+                )
+                if source_path is None or source_path in seen_provider_sources:
+                    continue
+                seen_provider_sources.add(source_path)
+                provider_sources.append(source_path)
+
+            if provider_sources:
+                service_compile_log = log_file.with_name(f"{log_file.stem}.service-provider.compile.log")
+                if _compile_service_provider_sources(
+                    provider_sources=provider_sources,
+                    existing_sources=source_files,
+                    build_dir=test_classes_dir,
+                    libs_glob_cp=libs_glob_cp,
+                    sut_jar=ctx.sut_jar,
+                    log_file=service_compile_log,
+                    repo_root_for_deps=ctx.repo_root_for_deps,
+                    module_rel=ctx.module_rel,
+                    build_tool=ctx.build_tool,
+                    max_rounds=pipeline.args.dep_rounds,
+                ):
+                    continue
+
         external_runtime_cp = resolve_external_runtime_classpath_from_output(full_output)
         if "Fork failed (exit=1) main=app.ListTests" in full_output:
             list_tests_output = _probe_covfilter_list_tests_output(
@@ -1586,7 +1989,9 @@ def _run_covfilter_with_retries(
                     external_runtime_cp,
                     resolve_external_runtime_classpath_from_output(list_tests_output),
                 )
-        retried_runtime_cp = _merge_classpath_strings(extra_runtime_cp, external_runtime_cp)
+        retried_runtime_cp = _filter_conflicting_slf4j_bindings(
+            _merge_classpath_strings(extra_runtime_cp, external_runtime_cp)
+        )
         if not retried_runtime_cp or retried_runtime_cp == extra_runtime_cp:
             return ok_cov, cov_tail
         extra_runtime_cp = retried_runtime_cp
@@ -1766,7 +2171,7 @@ class CovfilterStep(Step):
                 libs_glob_cp=self.pipeline.args.libs_cp,
                 sources=ctx.final_sources,
             )
-            ok_compile, compile_tail, compiled_sources = compile_test_set_smart(
+            ok_compile, compile_tail, compiled_sources = _compile_with_generated_pruning(
                 java_files=ctx.final_sources,
                 build_dir=covfilter_build,
                 libs_glob_cp=effective_libs_cp,
@@ -2002,7 +2407,7 @@ class AdoptedFilterStep(Step):
                 sources=adopted_sources,
             )
             for _attempt in range(3):
-                ok_adopt, adopt_tail, _ = compile_test_set_smart(
+                ok_adopt, adopt_tail, _ = _compile_with_generated_pruning(
                     java_files=adopted_sources,
                     build_dir=adopted_build,
                     libs_glob_cp=effective_libs_cp,
