@@ -190,6 +190,13 @@ def cli_main(
     filter_only_agt_covered: Annotated[bool, typer.Option(help="Filter to AGT-covered targets only")] = bool(
         DEFAULTS["filter_only_agt_covered"]
     ),
+    skip_empty_tests: Annotated[
+        bool,
+        typer.Option(
+            "--skip-empty-tests/--no-skip-empty-tests",
+            help="Skip targets whose generated test only contains notGeneratedAnyTest",
+        ),
+    ] = bool(DEFAULTS["skip_empty_tests"]),
     coverage_summary: Annotated[str, typer.Option(help="Coverage summary CSV path override")] = str(
         DEFAULTS["coverage_summary"]
     ),
@@ -210,6 +217,7 @@ def cli_main(
             tool_jar=str(tool_jar),
             timeout_ms=timeout_ms,
             filter_only_agt_covered=filter_only_agt_covered,
+            skip_empty_tests=skip_empty_tests,
             coverage_summary=coverage_summary,
         )
     }

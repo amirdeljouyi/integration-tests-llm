@@ -24,6 +24,7 @@ from ..core.java import (
     remove_unused_imports,
     resolve_external_runtime_classpath_from_output,
 )
+from ..pipeline.helpers import first_test_source_for_fqcn, is_empty_generated_test_source
 from .base import Step
 
 if TYPE_CHECKING:
@@ -184,6 +185,121 @@ def _normalize_evosuite_mock_answers(path: Path) -> bool:
     path.write_text(updated, encoding="utf-8")
     return True
 
+
+def _parse_javac_error_lines_by_source(log_text: str) -> dict[Path, set[int]]:
+    errors: dict[Path, set[int]] = {}
+    pattern = re.compile(r"^(.+?\.java):(\d+):\s+error:")
+    for raw_line in log_text.splitlines():
+        match = pattern.match(raw_line.strip())
+        if not match:
+            continue
+        source_path = Path(match.group(1)).resolve()
+        line_no = int(match.group(2))
+        errors.setdefault(source_path, set()).add(line_no)
+    return errors
+
+
+def _method_spans_with_annotations(lines: Sequence[str]) -> List[Tuple[int, int, int]]:
+    spans: List[Tuple[int, int, int]] = []
+    method_pattern = re.compile(
+        r"^\s*(?:public|protected|private)\s+(?:static\s+)?(?:<[^>]+>\s+)?[\w\[\]<>?,.$\s]+\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\("
+    )
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        if not method_pattern.match(line):
+            idx += 1
+            continue
+        decl_start = idx
+        end = idx
+        brace_depth = line.count("{") - line.count("}")
+        saw_open = line.count("{") > 0
+        while end + 1 < len(lines):
+            if saw_open and brace_depth <= 0:
+                break
+            end += 1
+            candidate = lines[end]
+            opens = candidate.count("{")
+            closes = candidate.count("}")
+            if opens > 0:
+                saw_open = True
+            brace_depth += opens - closes
+        if not saw_open:
+            idx += 1
+            continue
+        anno_start = decl_start
+        while anno_start > 0 and lines[anno_start - 1].strip().startswith("@"):
+            anno_start -= 1
+        spans.append((anno_start, decl_start, end))
+        idx = end + 1
+    return spans
+
+
+def _drop_generated_methods_containing_errors(java_file: Path, error_lines: set[int]) -> bool:
+    if not error_lines:
+        return False
+    try:
+        lines = java_file.read_text(encoding="utf-8", errors="ignore").splitlines(keepends=True)
+    except OSError:
+        return False
+    if not lines:
+        return False
+
+    spans = _method_spans_with_annotations(lines)
+    if not spans:
+        return False
+
+    ranges_to_remove: List[Tuple[int, int]] = []
+    for anno_start, decl_start, end in spans:
+        start_line = decl_start + 1
+        end_line = end + 1
+        if any(start_line <= line_no <= end_line for line_no in error_lines):
+            ranges_to_remove.append((anno_start, end))
+
+    if not ranges_to_remove:
+        return False
+
+    remove_indexes: Set[int] = set()
+    for start, end in ranges_to_remove:
+        remove_indexes.update(range(start, end + 1))
+
+    updated_lines = [line for idx, line in enumerate(lines) if idx not in remove_indexes]
+    if updated_lines == lines:
+        return False
+
+    try:
+        java_file.write_text("".join(updated_lines), encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def _prune_generated_methods_from_compile_errors(
+    *,
+    java_files: Sequence[Path],
+    compile_output: str,
+) -> bool:
+    if not compile_output:
+        return False
+
+    generated_candidates = {
+        source.resolve(): source
+        for source in java_files
+        if "_ESTest" in source.name and not source.name.endswith("_ESTest_scaffolding.java")
+    }
+    if not generated_candidates:
+        return False
+
+    errors_by_source = _parse_javac_error_lines_by_source(compile_output)
+    changed = False
+    for source_path, error_lines in errors_by_source.items():
+        candidate = generated_candidates.get(source_path)
+        if candidate is None:
+            continue
+        changed = _drop_generated_methods_containing_errors(candidate, error_lines) or changed
+    return changed
+
+
 def _attempt_source_remediation(
     *,
     java_files: Sequence[Path],
@@ -201,6 +317,10 @@ def _attempt_source_remediation(
         return False, list(java_files)
 
     compile_output = read_compile_log(log_file)
+    pruned_generated_methods = _prune_generated_methods_from_compile_errors(
+        java_files=java_files,
+        compile_output=compile_output,
+    )
     for candidate in candidates:
         _normalize_evosuite_mock_answers(candidate)
         remove_unused_imports(str(candidate), False)
@@ -223,6 +343,27 @@ def _attempt_source_remediation(
         build_tool=build_tool,
         max_rounds=max_rounds,
     )
+    if not ok and pruned_generated_methods:
+        updated_output = read_compile_log(log_file)
+        if updated_output and updated_output != compile_output:
+            _prune_generated_methods_from_compile_errors(
+                java_files=java_files,
+                compile_output=updated_output,
+            )
+            if build_dir.exists():
+                shutil.rmtree(build_dir, ignore_errors=True)
+            ensure_dir(build_dir)
+            ok, _tail, compiled_sources = compile_test_set_smart(
+                java_files=java_files,
+                build_dir=build_dir,
+                libs_glob_cp=effective_libs_cp,
+                sut_jar=sut_jar,
+                log_file=log_file,
+                repo_root_for_deps=repo_root_for_deps,
+                module_rel=module_rel,
+                build_tool=build_tool,
+                max_rounds=max_rounds,
+            )
     return ok, compiled_sources
 
 
@@ -364,6 +505,16 @@ class CompileStep(Step):
 
         manual_sources = list(ctx.manual_sources)
         generated_sources = [s for s in ctx.sources if s not in set(ctx.manual_sources)]
+        if self.pipeline.args.skip_empty_tests:
+            generated_test_src = first_test_source_for_fqcn(generated_sources, ctx.generated_test_fqcn)
+            if generated_test_src is None and generated_sources:
+                generated_test_src = generated_sources[0]
+            if is_empty_generated_test_source(generated_test_src):
+                print(
+                    f'[agt] compile: Skip (empty generated tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"'
+                )
+                ctx.final_sources = ctx.sources
+                return True
         for generated_source in generated_sources:
             _normalize_evosuite_mock_answers(generated_source)
         full_sources = expand_same_package_support_sources(

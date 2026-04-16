@@ -34,6 +34,7 @@ from ..pipeline.helpers import (
     find_scaffolding_source,
     first_test_fqcn_from_sources,
     first_test_source_for_fqcn,
+    is_empty_generated_test_source,
 )
 from .base import Step
 
@@ -46,6 +47,7 @@ JAVA_OPENS = [
     "--add-opens=java.base/java.util=ALL-UNNAMED",
     "--add-opens=java.base/java.io=ALL-UNNAMED",
     "--add-opens=java.base/java.net=ALL-UNNAMED",
+    "--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED",
     "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
     "--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
     "--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED",
@@ -66,6 +68,7 @@ JAVA_OPENS = [
     "--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED",
     "--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
     "--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
+    "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
     "-Djava.awt.headless=true",
     "-Dnet.bytebuddy.experimental=true",
 ]
@@ -195,6 +198,96 @@ def _runtime_workdir_and_resources(
         add(module_dir / "build" / "resources" / "test")
         add(module_dir / "build" / "resources" / "main")
     return module_dir, resources
+
+
+def _extract_missing_service_provider_classes(output: str) -> List[str]:
+    providers: List[str] = []
+    seen = set()
+    pattern = re.compile(
+        r"ServiceConfigurationError:\s+[A-Za-z0-9_.$]+:\s+Provider\s+([A-Za-z0-9_.$]+)\s+not found"
+    )
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = pattern.search(line)
+        if not match:
+            continue
+        provider = match.group(1).strip()
+        if not provider or provider in seen:
+            continue
+        seen.add(provider)
+        providers.append(provider)
+    return providers
+
+
+def _source_path_for_provider_fqcn(
+    *,
+    provider_fqcn: str,
+    module_dir: Optional[Path],
+    repo_root_for_deps: Optional[Path],
+    module_rel: str,
+) -> Optional[Path]:
+    rel_path = Path(*provider_fqcn.split(".")).with_suffix(".java")
+    roots: List[Path] = []
+    seen = set()
+
+    def add_root(root: Optional[Path]) -> None:
+        if root is None:
+            return
+        key = str(root.resolve()) if root.exists() else str(root)
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(root)
+
+    if module_dir is not None:
+        add_root(module_dir / "src" / "test" / "java")
+        add_root(module_dir / "src" / "main" / "java")
+
+    if repo_root_for_deps and repo_root_for_deps.exists():
+        rel = (module_rel or "").strip()
+        if rel and rel not in {".", "root"}:
+            module_root = repo_root_for_deps / rel
+            add_root(module_root / "src" / "test" / "java")
+            add_root(module_root / "src" / "main" / "java")
+        add_root(repo_root_for_deps / "src" / "test" / "java")
+        add_root(repo_root_for_deps / "src" / "main" / "java")
+
+    for root in roots:
+        candidate = root / rel_path
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _compile_service_provider_sources(
+    *,
+    provider_sources: Sequence[Path],
+    compiled_tests_dir: Path,
+    libs_glob_cp: str,
+    sut_jar: Path,
+    log_file: Path,
+    repo_root_for_deps: Optional[Path],
+    module_rel: str,
+    build_tool: str,
+) -> bool:
+    if not provider_sources:
+        return False
+    expanded_sources = expand_same_package_support_sources(repo_root_for_deps, list(provider_sources))
+    expanded_sources = _expand_same_module_imported_test_sources(repo_root_for_deps, expanded_sources)
+    ok, _tail, _compiled_sources = compile_test_set_smart(
+        java_files=expanded_sources,
+        build_dir=compiled_tests_dir,
+        libs_glob_cp=libs_glob_cp,
+        sut_jar=sut_jar,
+        log_file=log_file,
+        repo_root_for_deps=repo_root_for_deps,
+        module_rel=module_rel,
+        build_tool=build_tool,
+        max_rounds=3,
+    )
+    return ok
 
 
 def _test_framework_runtime_cp(test_src: Path) -> str:
@@ -480,6 +573,9 @@ class CoverageObservation:
     detail: str = ""
 
 
+AGT_REMEDIATION_IGNORE = 'AGT remediation: failing generated assertion'
+
+
 def _select_test_root(
     *,
     compiled_tests_dir: Path,
@@ -714,6 +810,95 @@ def _method_span(lines: Sequence[str], method_name: str) -> Optional[tuple[int, 
     return None
 
 
+def _method_spans_with_annotations(lines: Sequence[str]) -> List[Tuple[int, int, int]]:
+    spans: List[Tuple[int, int, int]] = []
+    method_pattern = re.compile(
+        r"^\s*(?:public|protected|private)\s+(?:static\s+)?(?:<[^>]+>\s+)?[\w\[\]<>?,.$\s]+\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\("
+    )
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        if not method_pattern.match(line):
+            idx += 1
+            continue
+        decl_start = idx
+        end = idx
+        brace_depth = line.count("{") - line.count("}")
+        saw_open = line.count("{") > 0
+        while end + 1 < len(lines):
+            if saw_open and brace_depth <= 0:
+                break
+            end += 1
+            candidate = lines[end]
+            opens = candidate.count("{")
+            closes = candidate.count("}")
+            if opens > 0:
+                saw_open = True
+            brace_depth += opens - closes
+        if not saw_open:
+            idx += 1
+            continue
+        anno_start = decl_start
+        while anno_start > 0 and lines[anno_start - 1].strip().startswith("@"):
+            anno_start -= 1
+        spans.append((anno_start, decl_start, end))
+        idx = end + 1
+    return spans
+
+
+def _parse_javac_error_lines_for_sources(compile_output: str, sources: Sequence[Path]) -> dict[Path, Set[int]]:
+    if not compile_output:
+        return {}
+    source_lookup = {source.resolve(): source for source in sources}
+    errors: dict[Path, Set[int]] = {}
+    pattern = re.compile(r"^(.+?\.java):(\d+):\s+error:")
+    for raw_line in compile_output.splitlines():
+        match = pattern.match(raw_line.strip())
+        if not match:
+            continue
+        candidate = Path(match.group(1)).resolve()
+        source = source_lookup.get(candidate)
+        if source is None:
+            continue
+        errors.setdefault(source, set()).add(int(match.group(2)))
+    return errors
+
+
+def _drop_generated_methods_from_compile_errors(sources: Sequence[Path], compile_output: str) -> bool:
+    errors_by_source = _parse_javac_error_lines_for_sources(compile_output, sources)
+    if not errors_by_source:
+        return False
+
+    changed = False
+    for source, error_lines in errors_by_source.items():
+        if "_ESTest" not in source.name or source.name.endswith("_ESTest_scaffolding.java"):
+            continue
+        try:
+            lines = source.read_text(encoding="utf-8", errors="ignore").splitlines(keepends=True)
+        except OSError:
+            continue
+        spans = _method_spans_with_annotations(lines)
+        if not spans:
+            continue
+        remove_indexes: Set[int] = set()
+        for anno_start, decl_start, end in spans:
+            start_line = decl_start + 1
+            end_line = end + 1
+            if any(start_line <= line_no <= end_line for line_no in error_lines):
+                remove_indexes.update(range(anno_start, end + 1))
+        if not remove_indexes:
+            continue
+        updated = [line for idx, line in enumerate(lines) if idx not in remove_indexes]
+        if updated == lines:
+            continue
+        try:
+            source.write_text("".join(updated), encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        changed = True
+    return changed
+
+
 def _method_has_generated_expected_exception_pattern(test_src: Path, method_name: str) -> bool:
     try:
         lines = test_src.read_text(encoding="utf-8", errors="ignore").splitlines()
@@ -767,6 +952,152 @@ def _looks_like_safe_generated_assertion_failure(
     )
 
 
+def _strip_agt_remediation_ignores(text: str) -> tuple[str, bool]:
+    lines = text.splitlines(keepends=True)
+    kept: List[str] = []
+    changed = False
+    for line in lines:
+        stripped = line.strip()
+        if (
+            stripped.startswith("@org.junit.Ignore")
+            or stripped.startswith("@Ignore")
+        ) and AGT_REMEDIATION_IGNORE in stripped:
+            changed = True
+            continue
+        kept.append(line)
+    return "".join(kept), changed
+
+
+def _generated_runtime_source_dir(coverage_tmp_dir: Path, test_fqcn: str) -> Path:
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", test_fqcn).replace(".", "_")
+    return coverage_tmp_dir / "runtime-generated-sources" / safe_name
+
+
+def _copy_scaffolding_for_runtime_source(original_test_src: Path, runtime_test_src: Path) -> Optional[Path]:
+    original_scaffolding = original_test_src.with_name(
+        original_test_src.name.replace("_ESTest.java", "_ESTest_scaffolding.java")
+    )
+    if not original_scaffolding.exists():
+        return None
+    runtime_scaffolding = runtime_test_src.with_name(original_scaffolding.name)
+    try:
+        runtime_scaffolding.write_text(
+            original_scaffolding.read_text(encoding="utf-8", errors="ignore"),
+            encoding="utf-8",
+            errors="ignore",
+        )
+    except OSError:
+        return None
+    return runtime_scaffolding
+
+
+def _runtime_generated_sources(test_src: Path) -> List[Path]:
+    sources = [test_src]
+    direct_scaffolding = test_src.with_name(test_src.name.replace("_ESTest.java", "_ESTest_scaffolding.java"))
+    if direct_scaffolding.exists():
+        sources.append(direct_scaffolding)
+    return sources
+
+
+def _materialize_runtime_generated_source(
+    *,
+    test_src: Path,
+    test_fqcn: str,
+    coverage_tmp_dir: Path,
+    strip_agt_ignores: bool = False,
+) -> Optional[Path]:
+    try:
+        text = test_src.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+
+    if strip_agt_ignores:
+        text, _changed = _strip_agt_remediation_ignores(text)
+
+    scaffolding_name = test_src.name.replace("_ESTest.java", "_ESTest_scaffolding.java")
+    scaffolding_text: Optional[str] = None
+    original_scaffolding = test_src.with_name(scaffolding_name)
+    if original_scaffolding.exists():
+        try:
+            scaffolding_text = original_scaffolding.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            scaffolding_text = None
+
+    runtime_dir = _generated_runtime_source_dir(coverage_tmp_dir, test_fqcn)
+    if runtime_dir.exists():
+        shutil.rmtree(runtime_dir, ignore_errors=True)
+    ensure_dir(runtime_dir)
+    runtime_src = runtime_dir / test_src.name
+    try:
+        runtime_src.write_text(text, encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    if scaffolding_text is not None:
+        try:
+            runtime_src.with_name(scaffolding_name).write_text(scaffolding_text, encoding="utf-8", errors="ignore")
+        except OSError:
+            return None
+    else:
+        _copy_scaffolding_for_runtime_source(test_src, runtime_src)
+    return runtime_src
+
+
+def _prepare_existing_remediated_generated_source(
+    *,
+    test_src: Path,
+    test_fqcn: str,
+    compiled_tests_dir: Path,
+    coverage_tmp_dir: Path,
+    libs_glob_cp: str,
+    sut_jar: Path,
+    run_log: Path,
+    repo_root_for_deps: Optional[Path],
+    module_rel: str,
+    build_tool: str,
+) -> tuple[Path, Optional[TestExecutionResult]]:
+    if not test_src.name.endswith("_ESTest.java"):
+        return test_src, None
+    try:
+        text = test_src.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return test_src, None
+    if AGT_REMEDIATION_IGNORE not in text:
+        return test_src, None
+
+    runtime_src = _materialize_runtime_generated_source(
+        test_src=test_src,
+        test_fqcn=test_fqcn,
+        coverage_tmp_dir=coverage_tmp_dir,
+        strip_agt_ignores=True,
+    )
+    if runtime_src is None:
+        return test_src, TestExecutionResult(
+            status="failed",
+            error_category="runtime_source_prepare_failed",
+            error_detail=f"could not materialize runtime copy for {test_src}",
+        )
+
+    compile_log = run_log.with_name(f"{run_log.stem}.runtime-source.compile.log")
+    ok_runtime, tail_runtime, _compiled_runtime = compile_test_set_smart(
+        java_files=_runtime_generated_sources(runtime_src),
+        build_dir=compiled_tests_dir,
+        libs_glob_cp=libs_glob_cp,
+        sut_jar=sut_jar,
+        log_file=compile_log,
+        repo_root_for_deps=repo_root_for_deps,
+        module_rel=module_rel,
+        build_tool=build_tool,
+        max_rounds=3,
+    )
+    if not ok_runtime:
+        return runtime_src, TestExecutionResult(
+            status="failed",
+            error_category="runtime_source_compile_failed",
+            error_detail=tail_runtime,
+        )
+    return runtime_src, None
+
+
 def _ignore_generated_junit4_methods(test_src: Path, method_names: Sequence[str]) -> bool:
     if not method_names:
         return False
@@ -810,6 +1141,53 @@ def _ignore_generated_junit4_methods(test_src: Path, method_names: Sequence[str]
     except OSError:
         return False
     return True
+
+
+def _materialize_generated_junit4_ignored_methods(
+    *,
+    test_src: Path,
+    method_names: Sequence[str],
+    test_fqcn: str,
+    coverage_tmp_dir: Path,
+) -> Optional[Path]:
+    runtime_src = _materialize_runtime_generated_source(
+        test_src=test_src,
+        test_fqcn=test_fqcn,
+        coverage_tmp_dir=coverage_tmp_dir,
+    )
+    if runtime_src is None:
+        return None
+    if not _ignore_generated_junit4_methods(runtime_src, method_names):
+        return None
+    return runtime_src
+
+
+def _junit4_test_ignore_counts(test_src: Path) -> tuple[int, int]:
+    try:
+        lines = test_src.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return 0, 0
+
+    total = 0
+    ignored = 0
+    annotations: List[str] = []
+    method_pattern = re.compile(r"^\s*(?:public|protected|private)\s+\S+\s+[A-Za-z0-9_$]+\s*\(")
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("@"):
+            annotations.append(stripped)
+            continue
+        if method_pattern.match(line):
+            has_test = any("@Test" in annotation or "@org.junit.Test" in annotation for annotation in annotations)
+            if has_test:
+                total += 1
+                if any("@Ignore" in annotation or "@org.junit.Ignore" in annotation for annotation in annotations):
+                    ignored += 1
+            annotations = []
+            continue
+        if stripped and not stripped.startswith("//") and not stripped.startswith("*"):
+            annotations = []
+    return total, ignored
 
 
 def _filter_repo_test_output_entries(classpath: str, *, keep_paths: Optional[Sequence[Path]] = None) -> str:
@@ -920,7 +1298,7 @@ def _result_from_runner_output(
     class_origin_detail: str,
 ) -> Optional[TestExecutionResult]:
     for line in output.splitlines():
-        if line.startswith("[JUnit5TestRunner]"):
+        if line.startswith("[JUnit5TestRunner] started="):
             parts = line.strip().split()
             started = 0
             skipped = 0
@@ -979,7 +1357,7 @@ def _result_from_runner_output(
                 class_origin=class_origin,
                 class_origin_detail=class_origin_detail,
             )
-        if line.startswith("[JUnit4TestRunner]"):
+        if line.startswith("[JUnit4TestRunner] run="):
             parts = line.strip().split()
             run_count = 0
             failed = 0
@@ -1066,6 +1444,8 @@ def _categorize_run_failure(output: str, test_selector: str) -> tuple[str, str]:
     if any(token in output for token in ("AssertionError", "AssertionFailedError", "ComparisonFailure")):
         return "assertion_failure", _extract_run_error_detail(output)
     if any(token in output for token in ("NoClassDefFoundError", "ClassNotFoundException")):
+        return "missing_runtime_dependency", _extract_run_error_detail(output)
+    if "ServiceConfigurationError" in output and "Provider" in output and "not found" in output:
         return "missing_runtime_dependency", _extract_run_error_detail(output)
     if any(
         token in output
@@ -1297,10 +1677,11 @@ def _attempt_run_error_fix(
     )
     if not ok_fix:
         compile_output = fix_compile_log.read_text(encoding="utf-8", errors="ignore")
+        pruned_generated = _drop_generated_methods_from_compile_errors(sources, compile_output)
         changed = False
         for source in sources:
             changed = add_throws_exception_to_error_methods(str(source), compile_output, False) or changed
-        if not changed:
+        if not changed and not pruned_generated:
             return None, (0, 0, 0, 0), CoverageObservation()
         ok_fix, _tail_fix, _compiled_fix = compile_test_set_smart(
             java_files=sources,
@@ -1313,6 +1694,20 @@ def _attempt_run_error_fix(
             build_tool=ctx.build_tool,
             max_rounds=dep_rounds,
         )
+        if not ok_fix and pruned_generated:
+            second_output = fix_compile_log.read_text(encoding="utf-8", errors="ignore")
+            if _drop_generated_methods_from_compile_errors(sources, second_output):
+                ok_fix, _tail_fix, _compiled_fix = compile_test_set_smart(
+                    java_files=sources,
+                    build_dir=ctx.target_build,
+                    libs_glob_cp=libs_glob_cp,
+                    sut_jar=ctx.sut_jar,
+                    log_file=fix_compile_log,
+                    repo_root_for_deps=ctx.repo_root_for_deps,
+                    module_rel=ctx.module_rel,
+                    build_tool=ctx.build_tool,
+                    max_rounds=dep_rounds,
+                )
     if not ok_fix:
         return None, (0, 0, 0, 0), CoverageObservation()
 
@@ -1672,6 +2067,21 @@ def run_test_with_coverage(
             return TestExecutionResult(status="skipped", error_category="parse_error"), (0, 0, 0, 0), None, CoverageObservation()
         test_fqcn = f"{pkg}.{cls}" if pkg else cls
 
+    test_src, prepare_error = _prepare_existing_remediated_generated_source(
+        test_src=test_src,
+        test_fqcn=test_fqcn,
+        compiled_tests_dir=compiled_tests_dir,
+        coverage_tmp_dir=coverage_tmp_dir,
+        libs_glob_cp=libs_glob_cp,
+        sut_jar=sut_jar,
+        run_log=run_log,
+        repo_root_for_deps=repo_root_for_deps,
+        module_rel=module_rel,
+        build_tool=build_tool,
+    )
+    if prepare_error is not None:
+        return prepare_error, (0, 0, 0, 0), test_fqcn, CoverageObservation()
+
     junit_ver = detect_junit_version(test_src)
     fallback_test_class_dirs = candidate_repo_class_dirs(repo_root_for_deps, module_rel)
     working_dir, resource_roots = _runtime_workdir_and_resources(
@@ -1711,9 +2121,24 @@ def run_test_with_coverage(
         )
     extra_runtime_cp = _with_matching_junit_platform_jars(extra_runtime_cp)
     include_sut_jar = True
+    attempted_service_providers: Set[str] = set()
+
+    def classify_discovery_result(raw_result: TestExecutionResult) -> TestExecutionResult:
+        if raw_result.error_category != "no_tests_discovered" or junit_ver != 4:
+            return raw_result
+        total_tests, ignored_tests = _junit4_test_ignore_counts(test_src)
+        if total_tests > 0 and ignored_tests >= total_tests:
+            return TestExecutionResult(
+                status="skipped",
+                error_category="all_tests_ignored",
+                error_detail=f"all {total_tests} JUnit4 tests are annotated with @Ignore",
+                class_origin=raw_result.class_origin,
+                class_origin_detail=raw_result.class_origin_detail,
+            )
+        return raw_result
 
     def run_with_cp(runtime_cp: str, *, include_target_jar: bool) -> TestExecutionResult:
-        return run_one_test_with_jacoco(
+        return classify_discovery_result(run_one_test_with_jacoco(
             junit_version=junit_ver,
             test_fqcn=test_fqcn,
             sut_jar=sut_jar,
@@ -1730,7 +2155,7 @@ def run_test_with_coverage(
             resource_roots=resource_roots,
             allowed_test_output_dirs=allowed_test_output_dirs,
             include_sut_jar=include_target_jar,
-        )
+        ))
 
     result = run_with_cp(extra_runtime_cp, include_target_jar=include_sut_jar)
     for _ in range(8):
@@ -1741,6 +2166,42 @@ def run_test_with_coverage(
             continue
 
         if result.error_category in {"missing_runtime_dependency", "initialization_error", "linkage_error"}:
+            missing_providers = [
+                provider
+                for provider in _extract_missing_service_provider_classes(run_output)
+                if provider not in attempted_service_providers
+            ]
+            if missing_providers:
+                attempted_service_providers.update(missing_providers)
+                provider_sources: List[Path] = []
+                seen_provider_sources = set()
+                for provider in missing_providers:
+                    source_path = _source_path_for_provider_fqcn(
+                        provider_fqcn=provider,
+                        module_dir=working_dir,
+                        repo_root_for_deps=repo_root_for_deps,
+                        module_rel=module_rel,
+                    )
+                    if source_path is None or source_path in seen_provider_sources:
+                        continue
+                    seen_provider_sources.add(source_path)
+                    provider_sources.append(source_path)
+
+                if provider_sources:
+                    service_compile_log = run_log.with_name(f"{run_log.stem}.service-provider.compile.log")
+                    if _compile_service_provider_sources(
+                        provider_sources=provider_sources,
+                        compiled_tests_dir=compiled_tests_dir,
+                        libs_glob_cp=libs_glob_cp,
+                        sut_jar=sut_jar,
+                        log_file=service_compile_log,
+                        repo_root_for_deps=repo_root_for_deps,
+                        module_rel=module_rel,
+                        build_tool=build_tool,
+                    ):
+                        result = run_with_cp(extra_runtime_cp, include_target_jar=include_sut_jar)
+                        continue
+
             if include_sut_jar and result.error_category in {"initialization_error", "linkage_error"}:
                 include_sut_jar = False
                 result = run_with_cp(extra_runtime_cp, include_target_jar=include_sut_jar)
@@ -1851,13 +2312,17 @@ def run_test_with_coverage(
                 method_names=failed_methods,
             ):
                 break
-            if not _ignore_generated_junit4_methods(test_src, failed_methods):
+            remediated_src = _materialize_generated_junit4_ignored_methods(
+                test_src=test_src,
+                method_names=failed_methods,
+                test_fqcn=test_fqcn,
+                coverage_tmp_dir=coverage_tmp_dir,
+            )
+            if remediated_src is None:
                 break
+            test_src = remediated_src
 
-            generated_sources = [test_src]
-            direct_scaffolding = test_src.with_name(test_src.name.replace("_ESTest.java", "_ESTest_scaffolding.java"))
-            if direct_scaffolding.exists():
-                generated_sources.append(direct_scaffolding)
+            generated_sources = _runtime_generated_sources(test_src)
             fix_compile_log = run_log.with_name(f"{run_log.stem}.autofix.compile.log")
             ok_fix, _tail_fix, _compiled_fix = compile_test_set_smart(
                 java_files=generated_sources,
@@ -1879,7 +2344,7 @@ def run_test_with_coverage(
 
     stats = (0, 0, 0, 0)
     observation = CoverageObservation()
-    if result.status == "passed":
+    if result.status in {"passed", "failed"}:
         if jacoco_cli.exists():
             stats, observation = get_coverage_stats(
                 jacoco_cli,
@@ -1970,11 +2435,67 @@ def get_coverage_stats(
     if not report_inputs:
         report_inputs.append(sut_jar)
 
+    def parse_current_report() -> Tuple[Tuple[int, int, int, int], CoverageObservation]:
+        line_cov, line_tot = 0, 0
+        branch_cov, branch_tot = 0, 0
+        matched_rows = 0
+
+        try:
+            with csv_report.open("r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # JaCoCo CSV columns: PACKAGE, CLASS, ... LINE_MISSED, LINE_COVERED, BRANCH_MISSED, BRANCH_COVERED
+                    pkg = row.get("PACKAGE", "")
+                    cls = row.get("CLASS", "")
+                    row_fqcn = f"{pkg}.{cls}" if pkg else cls
+                    if row_fqcn == target_fqcn:
+                        matched_rows += 1
+                        lm = int(row.get("LINE_MISSED", 0))
+                        lc = int(row.get("LINE_COVERED", 0))
+                        bm = int(row.get("BRANCH_MISSED", 0))
+                        bc = int(row.get("BRANCH_COVERED", 0))
+                        line_cov += lc
+                        line_tot += (lc + lm)
+                        branch_cov += bc
+                        branch_tot += (bc + bm)
+        except Exception:
+            return (0, 0, 0, 0), CoverageObservation(
+                category="report_parse_failed",
+                detail=f"Failed to parse JaCoCo CSV report {csv_report}",
+            )
+
+        if matched_rows == 0:
+            return (0, 0, 0, 0), CoverageObservation(
+                category="target_not_found_in_report",
+                detail=f"JaCoCo report did not contain an entry for target class {target_fqcn}",
+            )
+
+        if line_tot == 0 and branch_tot == 0:
+            return (line_cov, line_tot, branch_cov, branch_tot), CoverageObservation(
+                category="target_has_no_counters",
+                detail=f"JaCoCo reported target class {target_fqcn}, but it had no line or branch counters",
+            )
+
+        return (line_cov, line_tot, branch_cov, branch_tot), CoverageObservation()
+
     report_generated = False
+    best_zero_coverage: Optional[Tuple[Tuple[int, int, int, int], CoverageObservation]] = None
+    first_report_issue: Optional[Tuple[Tuple[int, int, int, int], CoverageObservation]] = None
     for classfiles_path in report_inputs:
         if run_report(classfiles_path):
             report_generated = True
-            break
+            candidate_stats, candidate_observation = parse_current_report()
+            if not candidate_observation.category and candidate_stats[0] > 0:
+                return candidate_stats, candidate_observation
+            if not candidate_observation.category and candidate_stats[1] > 0 and best_zero_coverage is None:
+                best_zero_coverage = (candidate_stats, candidate_observation)
+            elif candidate_observation.category and first_report_issue is None:
+                first_report_issue = (candidate_stats, candidate_observation)
+
+    if best_zero_coverage is not None:
+        return best_zero_coverage
+    if report_generated and first_report_issue is not None:
+        return first_report_issue
 
     if not report_generated:
         # Fallback: extract only the target class(es) from fatjar to avoid duplicate-class errors.
@@ -2000,6 +2521,7 @@ def get_coverage_stats(
                             category="report_generation_failed",
                             detail=f"JaCoCo report generation failed for extracted classfiles of {target_fqcn}",
                         )
+                    return parse_current_report()
                 else:
                     return (0, 0, 0, 0), CoverageObservation(
                         category="target_classfiles_missing",
@@ -2013,47 +2535,10 @@ def get_coverage_stats(
                 detail=f"JaCoCo report generation failed for {sut_jar}",
             )
 
-    line_cov, line_tot = 0, 0
-    branch_cov, branch_tot = 0, 0
-    matched_rows = 0
-
-    try:
-        with csv_report.open("r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                # JaCoCo CSV columns: PACKAGE, CLASS, ... LINE_MISSED, LINE_COVERED, BRANCH_MISSED, BRANCH_COVERED
-                pkg = row.get("PACKAGE", "")
-                cls = row.get("CLASS", "")
-                row_fqcn = f"{pkg}.{cls}" if pkg else cls
-                if row_fqcn == target_fqcn:
-                    matched_rows += 1
-                    lm = int(row.get("LINE_MISSED", 0))
-                    lc = int(row.get("LINE_COVERED", 0))
-                    bm = int(row.get("BRANCH_MISSED", 0))
-                    bc = int(row.get("BRANCH_COVERED", 0))
-                    line_cov += lc
-                    line_tot += (lc + lm)
-                    branch_cov += bc
-                    branch_tot += (bc + bm)
-    except Exception:
-        return (0, 0, 0, 0), CoverageObservation(
-            category="report_parse_failed",
-            detail=f"Failed to parse JaCoCo CSV report {csv_report}",
-        )
-
-    if matched_rows == 0:
-        return (0, 0, 0, 0), CoverageObservation(
-            category="target_not_found_in_report",
-            detail=f"JaCoCo report did not contain an entry for target class {target_fqcn}",
-        )
-
-    if line_tot == 0 and branch_tot == 0:
-        return (line_cov, line_tot, branch_cov, branch_tot), CoverageObservation(
-            category="target_has_no_counters",
-            detail=f"JaCoCo reported target class {target_fqcn}, but it had no line or branch counters",
-        )
-
-    return (line_cov, line_tot, branch_cov, branch_tot), CoverageObservation()
+    return (0, 0, 0, 0), CoverageObservation(
+        category="report_generation_failed",
+        detail=f"JaCoCo report generation failed for {target_fqcn}",
+    )
 
 
 class RunStep(Step):
@@ -2063,6 +2548,16 @@ class RunStep(Step):
         if not self.should_run():
             return True
         auto_variant = self.pipeline.args.auto_variant
+        if self.pipeline.args.skip_empty_tests:
+            generated_candidates = [
+                source for source in (ctx.final_sources or ctx.sources) if source not in set(ctx.manual_sources)
+            ]
+            generated_test_src = first_test_source_for_fqcn(generated_candidates, ctx.generated_test_fqcn)
+            if generated_test_src is None and generated_candidates:
+                generated_test_src = generated_candidates[0]
+            if is_empty_generated_test_source(generated_test_src):
+                print(f'[agt] run: Skip (empty generated tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                return True
         jacoco_cli = self.pipeline.jacoco_agent.parent / "org.jacoco.cli-run-0.8.14.jar"
         tool_jar = Path(self.pipeline.args.tool_jar)
         wrote_manual = False
@@ -2148,6 +2643,7 @@ class RunStep(Step):
                 print(f"[agt] Test timed out: {test_fqcn} (see {run_log})")
             elif result.status == "skipped":
                 print(f"[agt] Test skipped: {test_fqcn} (see {run_log})")
+            if result.status != "passed":
                 write_coverage_error_row(
                     csv_path=self.pipeline.coverage_errors_csv,
                     repo=ctx.repo,
@@ -2407,6 +2903,16 @@ class AdoptedRunStep(Step):
     def run(self, ctx: "TargetContext") -> bool:
         if not self.should_run():
             return True
+        if self.pipeline.args.skip_empty_tests:
+            generated_candidates = [
+                source for source in (ctx.final_sources or ctx.sources) if source not in set(ctx.manual_sources)
+            ]
+            generated_test_src = first_test_source_for_fqcn(generated_candidates, ctx.generated_test_fqcn)
+            if generated_test_src is None and generated_candidates:
+                generated_test_src = generated_candidates[0]
+            if is_empty_generated_test_source(generated_test_src):
+                print(f'[agt] adopted-run: Skip (empty generated tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                return True
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(f'[agt] adopted-run: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True

@@ -11,6 +11,7 @@ from ..pipeline.helpers import (
     find_scaffolding_source,
     fix_reduced_scaffolding_import,
     first_test_source_for_fqcn,
+    is_empty_generated_test_source,
     reduced_test_path,
     reduced_variant_test_path,
 )
@@ -122,6 +123,11 @@ class CoverageComparisonStep(Step):
         if not self.should_run():
             return True
         auto_variant = self.pipeline.args.auto_variant
+        if self.pipeline.args.skip_empty_tests:
+            generated_test_src = first_test_source_for_fqcn(ctx.final_sources or ctx.sources, ctx.generated_test_fqcn)
+            if is_empty_generated_test_source(generated_test_src):
+                print(f'[agt] coverage-comparison: Skip (empty generated tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                return True
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(f'[agt] coverage-comparison: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True
@@ -208,6 +214,13 @@ class CoverageComparisonReducedStep(Step):
         if not self.should_run():
             return True
         auto_variant = self.pipeline.args.auto_variant
+        if self.pipeline.args.skip_empty_tests:
+            generated_test_src = first_test_source_for_fqcn(ctx.final_sources or ctx.sources, ctx.generated_test_fqcn)
+            if is_empty_generated_test_source(generated_test_src):
+                print(
+                    f'[agt] coverage-comparison-reduced: Skip (empty generated tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"'
+                )
+                return True
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(
                 f'[agt] coverage-comparison-reduced: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"'

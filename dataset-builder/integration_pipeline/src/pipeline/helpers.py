@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from ..core.common import is_probably_test_filename, looks_like_scaffolding, parse_package_and_class
+
+_EMPTY_GENERATED_TEST_METHOD_PATTERN = re.compile(r"\bvoid\s+notGeneratedAnyTest\s*\(")
+_EMPTY_GENERATED_TEST_COMMENT = "EvoSuite did not generate any tests"
 
 
 def find_tests_in_bucket(bucket_root: Path, filenames: List[str]) -> List[Path]:
@@ -157,6 +161,18 @@ def first_test_source_for_fqcn(sources: List[Path], fqcn: Optional[str]) -> Opti
         if cand == fqcn:
             return p
     return None
+
+
+def is_empty_generated_test_source(test_src: Optional[Path]) -> bool:
+    if test_src is None or not test_src.exists():
+        return False
+    try:
+        text = test_src.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    if _EMPTY_GENERATED_TEST_COMMENT not in text:
+        return False
+    return _EMPTY_GENERATED_TEST_METHOD_PATTERN.search(text) is not None
 
 
 def test_fqcn_from_source(src: Path) -> Optional[str]:

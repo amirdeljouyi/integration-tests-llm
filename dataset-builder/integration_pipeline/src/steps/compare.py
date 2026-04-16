@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from ..metrics.compare import compare_tests, run_tri_compare_with_log
 from ..pipeline.config import includes_csv_path
-from ..pipeline.helpers import adopted_variants, first_test_source_for_fqcn, reduced_test_path
+from ..pipeline.helpers import adopted_variants, first_test_source_for_fqcn, is_empty_generated_test_source, reduced_test_path
 from .base import Step
 
 if TYPE_CHECKING:
@@ -18,6 +18,11 @@ class CompareStep(Step):
     def run(self, ctx: TargetContext) -> bool:
         if not self.should_run():
             return True
+        if self.pipeline.args.skip_empty_tests:
+            generated_test_src = first_test_source_for_fqcn(ctx.final_sources or ctx.sources, ctx.generated_test_fqcn)
+            if is_empty_generated_test_source(generated_test_src):
+                print(f'[agt] compare: Skip (empty generated tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                return True
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(f'[agt] compare: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             return True

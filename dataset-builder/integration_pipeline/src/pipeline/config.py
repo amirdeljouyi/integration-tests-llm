@@ -112,6 +112,7 @@ class PipelineArgs:
     skip_exists: bool = False
     skip_passed: bool = False
     skip_passed_by_status: bool = False
+    skip_empty_tests: bool = True
     agent_model: str = ""
     agent_max_context_files: int = 12
     agent_max_context_chars: int = 40_000

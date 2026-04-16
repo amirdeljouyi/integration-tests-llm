@@ -692,19 +692,27 @@ def _resolve_external_classpath_from_log(log_text: str) -> str:
 def resolve_external_runtime_classpath_from_output(output: str) -> str:
     targets: List[str] = []
     seen: Set[str] = set()
+    service_provider_pattern = re.compile(
+        r"ServiceConfigurationError:\s+[A-Za-z0-9_.$]+:\s+Provider\s+([A-Za-z0-9_.$]+)\s+not found"
+    )
     for raw_line in output.splitlines():
         line = raw_line.strip()
         if not line:
             continue
         match = re.search(r"(?:NoClassDefFoundError|ClassNotFoundException):\s+([A-Za-z0-9_.$/]+)", line)
-        if not match:
-            continue
-        target = match.group(1).replace("/", ".")
-        normalized = _normalize_import_target_class(target)
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        targets.append(normalized)
+        if match:
+            target = match.group(1).replace("/", ".")
+            normalized = _normalize_import_target_class(target)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                targets.append(normalized)
+        provider_match = service_provider_pattern.search(line)
+        if provider_match:
+            provider = provider_match.group(1).strip()
+            normalized_provider = _normalize_import_target_class(provider)
+            if normalized_provider and normalized_provider not in seen:
+                seen.add(normalized_provider)
+                targets.append(normalized_provider)
     direct_cp = _resolve_m2_jars_for_import_targets(targets)
     transitive_cp = _expand_runtime_dependency_cp(direct_cp)
     return _merge_classpath_parts([direct_cp, transitive_cp])
@@ -914,6 +922,9 @@ def _looks_like_annotation_processor_failure(log_text: str) -> bool:
     lowered = log_text.lower()
     return (
         "an annotation processor threw an uncaught exception" in lowered
+        or "bad service configuration file" in lowered and "processor object" in lowered
+        or "exception thrown while constructing processor object" in lowered
+        or "javax.annotation.processing.processor:" in lowered and "could not be instantiated" in lowered
         or "java.lang.noclassdeffounderror:" in lowered and "processor" in lowered
     )
 

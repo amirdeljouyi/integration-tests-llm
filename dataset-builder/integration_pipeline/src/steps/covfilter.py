@@ -28,7 +28,13 @@ from ..pipeline.sanitize import (
     variant_test_fqcn,
     variant_pair,
 )
-from ..pipeline.helpers import adopted_variants, first_test_source_for_fqcn, libs_dir_from_glob, test_fqcn_from_source
+from ..pipeline.helpers import (
+    adopted_variants,
+    first_test_source_for_fqcn,
+    is_empty_generated_test_source,
+    libs_dir_from_glob,
+    test_fqcn_from_source,
+)
 from .llm import namespace_non_primary_type_name_file, normalize_primary_class_name_file
 from .base import Step
 
@@ -48,7 +54,7 @@ DEFAULT_JAVA_OPTS: List[str] = [
 
 _COVFILTER_JAVA_FEATURE_VERSION: Optional[int] = None
 _COVFILTER_RUNTIME_RETRY_LIMIT = 12
-_COVFILTER_SUBPROCESS_TIMEOUT_MS = 600_000
+_COVFILTER_SUBPROCESS_TIMEOUT_MS = 900_000
 
 
 def _covfilter_java_feature_version() -> int:
@@ -1593,6 +1599,17 @@ class CovfilterStep(Step):
     def run(self, ctx: "TargetContext") -> bool:
         if not (self.pipeline.do_covfilter and self.should_run()):
             return True
+        if self.pipeline.args.skip_empty_tests:
+            generated_test_src = first_test_source_for_fqcn(ctx.final_sources or ctx.sources, ctx.generated_test_fqcn)
+            if generated_test_src is None:
+                generated_candidates = [
+                    source for source in (ctx.final_sources or ctx.sources) if source not in set(ctx.manual_sources)
+                ]
+                if generated_candidates:
+                    generated_test_src = generated_candidates[0]
+            if is_empty_generated_test_source(generated_test_src):
+                print(f'[agt] covfilter: Skip (empty generated tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                return True
         auto_variant = self.pipeline.args.auto_variant
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(f'[agt] covfilter: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
@@ -1838,6 +1855,17 @@ class AdoptedFilterStep(Step):
     def run(self, ctx: "TargetContext") -> bool:
         if not (self.pipeline.do_covfilter and self.should_run()):
             return True
+        if self.pipeline.args.skip_empty_tests:
+            generated_test_src = first_test_source_for_fqcn(ctx.final_sources or ctx.sources, ctx.generated_test_fqcn)
+            if generated_test_src is None:
+                generated_candidates = [
+                    source for source in (ctx.final_sources or ctx.sources) if source not in set(ctx.manual_sources)
+                ]
+                if generated_candidates:
+                    generated_test_src = generated_candidates[0]
+            if is_empty_generated_test_source(generated_test_src):
+                print(f'[agt] adopted-covfilter: Skip (empty generated tests): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
+                return True
         if self.pipeline.covfilter_allow is not None and (ctx.repo, ctx.fqcn) not in self.pipeline.covfilter_allow:
             print(f'[agt] adopted-covfilter: Skip (agt_line_covered=0): repo="{ctx.repo}" fqcn="{ctx.fqcn}"')
             for variant in ("adopted", "agentic"):
