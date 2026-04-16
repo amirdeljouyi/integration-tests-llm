@@ -42,6 +42,7 @@ public final class ForkedJacocoRunner {
         cmd.add("java");
 
         addTimeoutProperty(cmd);
+        addMacHeadlessProperties(cmd);
 
         cmd.add("--add-opens"); cmd.add("java.base/java.lang=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.lang.reflect=ALL-UNNAMED");
@@ -94,6 +95,7 @@ public final class ForkedJacocoRunner {
         cmd.add("java");
 
         addTimeoutProperty(cmd);
+        addMacHeadlessProperties(cmd);
 
         cmd.add("--add-opens"); cmd.add("java.base/java.lang=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.lang.reflect=ALL-UNNAMED");
@@ -140,6 +142,7 @@ public final class ForkedJacocoRunner {
         cmd.add("java");
 
         addTimeoutProperty(cmd);
+        addMacHeadlessProperties(cmd);
 
         cmd.add("--add-opens"); cmd.add("java.base/java.lang=ALL-UNNAMED");
         cmd.add("--add-opens"); cmd.add("java.base/java.lang.reflect=ALL-UNNAMED");
@@ -182,6 +185,24 @@ public final class ForkedJacocoRunner {
         if (timeoutMs != null && !timeoutMs.isBlank()) {
             cmd.add("-D" + runner.TestTimeouts.TIMEOUT_PROP + "=" + timeoutMs.trim());
         }
+    }
+
+    private void addMacHeadlessProperties(List<String> cmd) {
+        if (!isMacOs()) {
+            return;
+        }
+        // Enabled by default on macOS to prevent foreground UI popups from forked test JVMs.
+        boolean enabled = Boolean.parseBoolean(System.getProperty("fork.macos.headless", "true"));
+        if (!enabled) {
+            return;
+        }
+        cmd.add("-Djava.awt.headless=true");
+        cmd.add("-Dapple.awt.UIElement=true");
+    }
+
+    private boolean isMacOs() {
+        String os = System.getProperty("os.name", "");
+        return os.toLowerCase().contains("mac");
     }
 
     private String buildJacocoAgentArg(File execFile, boolean append) {
